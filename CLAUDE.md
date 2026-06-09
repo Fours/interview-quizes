@@ -31,6 +31,10 @@ Some topics which should be covered by the quizes are:
 
 When creating a new quiz question, make sure its not a duplicate by reviewing the existing quiz questions.
 
+### Technical Quiz Specs
+
+The data for quizes is stored in a javascript array in ```src/quizes.ts```
+
 The javascript array data shape for a quizes looks like this:
 [ { name: "Quiz 01", questions: [ {question: "", explanation: "", answers: [ { answer: "", isCorrect: true } ] } ] } ]
 
