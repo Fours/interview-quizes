@@ -1,15 +1,15 @@
-type Answer = {
+export type Answer = {
   answer: string;
   isCorrect: boolean;
 };
 
-type Question = {
+export type Question = {
   question: string;
   explanation: string;
   answers: Answer[];
 };
 
-type Quiz = {
+export type Quiz = {
   name: string;
   questions: Question[];
 };
