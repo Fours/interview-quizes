@@ -791,4 +791,477 @@ Additional benefits: services can scale independently, teams can deploy them wit
       },
     ],
   },
+  {
+    name: "Quiz 3",
+    questions: [
+      {
+        question: `The following TypeScript function uses an exhaustiveness check. A new \`"triangle"\` variant is added to the \`Shape\` union but \`area\` is not updated. What happens, and what is the role of the \`never\` type here?
+
+\`\`\`typescript
+type Shape =
+  | { kind: "circle"; radius: number }
+  | { kind: "square"; side: number };
+
+function area(shape: Shape): number {
+  switch (shape.kind) {
+    case "circle": return Math.PI * shape.radius ** 2;
+    case "square": return shape.side ** 2;
+    default: {
+      const _exhaustive: never = shape;
+      return _exhaustive;
+    }
+  }
+}
+\`\`\``,
+        explanation: `This is the **exhaustiveness checking** pattern built on the fact that \`never\` is the empty type — no value is assignable to \`never\` except a value of type \`never\` itself.
+
+Inside the \`default\` branch, TypeScript has narrowed \`shape\` by eliminating every handled \`kind\`. As long as all variants are handled, the narrowed type is \`never\`, and \`const _exhaustive: never = shape\` type-checks.
+
+The moment you add \`{ kind: "triangle"; base: number; height: number }\` to \`Shape\` without adding a \`case\`, the \`default\` branch narrows \`shape\` to that triangle member instead of \`never\`. Assigning it to a \`never\`-typed variable produces a **compile-time error**: \`Type '{ kind: "triangle"; ... }' is not assignable to type 'never'\`. This turns a forgotten case into a build failure rather than a silent runtime bug.
+
+Note this is a *compile-time* guarantee only — it requires strict type checking and provides no protection if \`shape\` arrives as untyped data at runtime (e.g., from JSON). For that you still need runtime validation.`,
+        answers: [
+          {
+            answer: "TypeScript raises a compile-time error at the `never` assignment because the un-handled `triangle` variant is no longer narrowable to `never`, catching the missing case at build time.",
+            isCorrect: true,
+          },
+          {
+            answer: "Nothing changes at compile time; the `default` branch silently returns `undefined` at runtime for triangles.",
+            isCorrect: false,
+          },
+          {
+            answer: "TypeScript throws a runtime `TypeError` whenever a triangle is passed, because `never` values cannot be constructed.",
+            isCorrect: false,
+          },
+          {
+            answer: "The code fails to compile immediately even before adding `triangle`, because assigning any value to `never` is always illegal.",
+            isCorrect: false,
+          },
+        ],
+      },
+      {
+        question: `What does the following JavaScript code log, and why?
+
+\`\`\`javascript
+const user = {
+  name: "Ada",
+  greetLater() {
+    setTimeout(function () {
+      console.log("Hi, " + this.name);
+    }, 0);
+  },
+  greetLaterArrow() {
+    setTimeout(() => {
+      console.log("Hi, " + this.name);
+    }, 0);
+  },
+};
+
+user.greetLater();
+user.greetLaterArrow();
+\`\`\``,
+        explanation: `The output is:
+\`\`\`
+Hi, undefined
+Hi, Ada
+\`\`\`
+
+**\`greetLater\`** passes a regular \`function\` to \`setTimeout\`. Regular functions get their \`this\` bound **at call time** based on *how* they are invoked. \`setTimeout\` invokes its callback as a plain function call with no receiver, so \`this\` is the global object (\`window\` in browsers, \`global\`/\`timers\` object in Node) in non-strict mode, or \`undefined\` in strict mode / ES modules. Either way \`this.name\` is not \`"Ada"\` — in a browser it logs \`Hi, undefined\`.
+
+**\`greetLaterArrow\`** uses an **arrow function**, which has no \`this\` of its own. It lexically captures \`this\` from the enclosing scope — the \`greetLaterArrow\` method, where \`this\` is \`user\`. So \`this.name\` is \`"Ada"\`.
+
+This is the single most important practical difference between arrow functions and regular functions: arrow functions capture \`this\` lexically and cannot be re-bound with \`call\`/\`apply\`/\`bind\`. It's exactly why arrow functions became the default for callbacks, event handlers, and array-method iteratees that need to reference enclosing state.`,
+        answers: [
+          {
+            answer: "`Hi, undefined` then `Hi, Ada` — the regular function's `this` is rebound by `setTimeout` (not `user`), while the arrow function lexically captures `this` from the enclosing method.",
+            isCorrect: true,
+          },
+          {
+            answer: "`Hi, Ada` then `Hi, Ada` — both callbacks retain `this` from the object they were defined on.",
+            isCorrect: false,
+          },
+          {
+            answer: "`Hi, Ada` then `Hi, undefined` — regular functions capture `this` lexically while arrow functions get a fresh global `this`.",
+            isCorrect: false,
+          },
+          {
+            answer: "`Hi, undefined` then `Hi, undefined` — `setTimeout` always strips `this` for every callback type.",
+            isCorrect: false,
+          },
+        ],
+      },
+      {
+        question: `A Node.js endpoint streams a 2 GB file to an HTTP client. Version A buffers the whole file; version B pipes it. Why does version B use dramatically less memory, and what does \`pipe\` do about a slow client?
+
+\`\`\`javascript
+// Version A
+app.get("/download", async (req, res) => {
+  const data = await fs.promises.readFile("/data/huge.bin");
+  res.end(data);
+});
+
+// Version B
+app.get("/download", (req, res) => {
+  fs.createReadStream("/data/huge.bin").pipe(res);
+});
+\`\`\``,
+        explanation: `**Version A** calls \`fs.promises.readFile\`, which reads the *entire* 2 GB into a single \`Buffer\` in memory before sending anything. With even a handful of concurrent downloads the process balloons past its heap/RSS limits and can crash with an out-of-memory error. It also delays the first byte until the whole file is read.
+
+**Version B** uses a **readable stream** piped to the response. The file is read in small chunks (default 64 KB \`highWaterMark\`), each chunk is written to the socket, and then the next chunk is read. Peak memory is a few buffers, not the whole file — roughly constant regardless of file size. Data also starts flowing to the client immediately.
+
+Crucially, \`pipe\` also handles **backpressure** automatically. If the client (or network) is slow, \`res.write()\` returns \`false\` when the socket's internal buffer fills. \`pipe\` responds by calling \`.pause()\` on the read stream, stops pulling from disk, and resumes (\`.resume()\`) only when the \`drain\` event fires. This prevents a fast disk from overwhelming a slow consumer and keeps memory bounded. Manually re-implementing this correctly is error-prone, which is why \`pipe\` (or \`stream.pipeline\`, which also propagates errors and cleans up) is strongly preferred.`,
+        answers: [
+          {
+            answer: "Streaming reads the file in small chunks so peak memory stays roughly constant instead of holding all 2 GB, and `pipe` applies backpressure — pausing the read stream when the client's socket buffer is full and resuming on `drain`.",
+            isCorrect: true,
+          },
+          {
+            answer: "`pipe` compresses the file on the fly, so less data is held in memory; slow clients are handled by dropping chunks that can't be sent in time.",
+            isCorrect: false,
+          },
+          {
+            answer: "Both versions use the same memory, but `pipe` runs on a libuv worker thread so it doesn't block the event loop; backpressure is irrelevant for HTTP.",
+            isCorrect: false,
+          },
+          {
+            answer: "Streaming loads the whole file once too, but caches it on disk; a slow client causes `pipe` to buffer everything in memory until the client catches up.",
+            isCorrect: false,
+          },
+        ],
+      },
+      {
+        question: `In React, every consumer of this Context re-renders on each keystroke in an unrelated input, causing lag. What is the root cause, and what is a standard fix?
+
+\`\`\`tsx
+function AppProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = React.useState<User | null>(null);
+  const [theme, setTheme] = React.useState<"light" | "dark">("light");
+
+  return (
+    <AppContext.Provider value={{ user, setUser, theme, setTheme }}>
+      {children}
+    </AppContext.Provider>
+  );
+}
+\`\`\``,
+        explanation: `Two things combine to cause the problem:
+
+1. **A new \`value\` object every render.** The object literal \`{ user, setUser, theme, setTheme }\` is a fresh reference on every render of \`AppProvider\`. React Context compares the provider's \`value\` by reference (\`Object.is\`); a new object means every consumer is notified of a "change."
+
+2. **All consumers of a single context re-render together.** Context has no partial-subscription mechanism. A component that only reads \`theme\` still re-renders whenever \`user\` (or anything else in the value) changes, because it subscribes to the whole context value.
+
+So when unrelated state elsewhere triggers a provider re-render, the new \`value\` object propagates to *every* consumer.
+
+**Standard fixes:**
+- **Split contexts**: put \`user\` and \`theme\` in separate providers so consumers subscribe only to what they use. This is the most idiomatic fix.
+- **Memoize the value**: \`const value = useMemo(() => ({ user, setUser, theme, setTheme }), [user, theme])\` gives a stable reference so consumers re-render only when \`user\` or \`theme\` actually change — not on unrelated parent re-renders.
+- **Separate state from dispatch**: a common pattern is one context for state and another for the stable \`dispatch\`/setters, so components that only dispatch never re-render on state changes.
+- For fine-grained subscriptions at scale, an external store (Zustand, Redux with selectors, or \`useSyncExternalStore\`) lets components subscribe to slices.`,
+        answers: [
+          {
+            answer: "The provider's `value` is a new object literal every render and all consumers of a context re-render together. Fix by splitting into separate contexts and/or memoizing the value with `useMemo` so it changes only when `user`/`theme` actually change.",
+            isCorrect: true,
+          },
+          {
+            answer: "Context always re-renders every component in the tree; the only fix is to stop using Context and lift all state into a Redux store.",
+            isCorrect: false,
+          },
+          {
+            answer: "The `useState` setters (`setUser`, `setTheme`) are recreated each render, so consumers must wrap them in `useCallback` — that alone eliminates the re-renders.",
+            isCorrect: false,
+          },
+          {
+            answer: "React re-renders consumers because the provider is missing a `key` prop; adding a stable `key` to `AppContext.Provider` prevents the cascade.",
+            isCorrect: false,
+          },
+        ],
+      },
+      {
+        question: `This query is slow on a 50-million-row \`orders\` table. \`EXPLAIN ANALYZE\` shows a **Seq Scan**. There is already a B-tree index on \`(customer_id)\`. Why isn't it used efficiently, and what index would make this query an index-only scan?
+
+\`\`\`sql
+SELECT customer_id, status, total
+FROM orders
+WHERE customer_id = 12345 AND status = 'shipped';
+\`\`\``,
+        explanation: `Two things are happening.
+
+First, a single-column index on \`(customer_id)\` *can* be used to find rows for customer \`12345\`, but if that customer has many orders the planner must then fetch each matching heap row to check \`status = 'shipped'\` and to read \`total\`. When the estimated number of matching rows is large relative to the table, the planner may decide a **sequential scan** is cheaper than many random heap lookups — which is what \`EXPLAIN\` is showing.
+
+The fix is a **composite index** that matches both the filter and the returned columns:
+
+\`\`\`sql
+CREATE INDEX idx_orders_cust_status_total
+ON orders (customer_id, status) INCLUDE (total);
+\`\`\`
+
+- \`(customer_id, status)\` lets the index seek directly to rows matching *both* predicates — column order matters: the equality columns come first.
+- The \`INCLUDE (total)\` clause stores \`total\` in the index leaf pages (a **covering index**). Now every column the query needs — \`customer_id\`, \`status\`, \`total\` — is available from the index alone.
+
+Because all needed columns live in the index, PostgreSQL can perform an **index-only scan**, skipping heap access entirely (given the visibility map is up to date via \`VACUUM\`). This turns a 50-million-row seq scan into a narrow index seek.
+
+Rule of thumb for composite indexes: **equality columns first, then range columns, then included/covering columns.**`,
+        answers: [
+          {
+            answer: "The single-column index doesn't cover `status` or `total`, so matching many rows leads the planner to a seq scan. A composite covering index `(customer_id, status) INCLUDE (total)` enables an index-only scan with no heap access.",
+            isCorrect: true,
+          },
+          {
+            answer: "PostgreSQL never uses B-tree indexes for `AND` conditions on two columns; you must create a separate index on `status` and let the planner do a bitmap `AND`.",
+            isCorrect: false,
+          },
+          {
+            answer: "The index is unused because `customer_id` is an integer; indexes only accelerate string columns, so casting `customer_id` to text would fix it.",
+            isCorrect: false,
+          },
+          {
+            answer: "Sequential scans are always faster than index scans on large tables, so the query is already optimal and no index change will help.",
+            isCorrect: false,
+          },
+        ],
+      },
+      {
+        question: `The final production image built from this Dockerfile is 1.1 GB and contains the full TypeScript toolchain, dev dependencies, and source \`.ts\` files. What technique reduces it to a lean runtime image, and roughly what should the production stage contain?
+
+\`\`\`dockerfile
+FROM node:22
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build          # tsc -> dist/
+CMD ["node", "dist/index.js"]
+\`\`\``,
+        explanation: `The problem: a single-stage build ships **everything** used to *build* the app in the image that *runs* it — the full \`node:22\` image (~1 GB), all \`devDependencies\` (TypeScript, type definitions, test tooling), and the original \`.ts\` source. None of that is needed at runtime; only the compiled \`dist/\` and production \`node_modules\` are.
+
+The technique is a **multi-stage build**. Use a \`build\` stage with the full toolchain to compile, then a separate slim \`runtime\` stage that copies *only* the compiled output and production dependencies:
+
+\`\`\`dockerfile
+# ---- build stage ----
+FROM node:22 AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# ---- runtime stage ----
+FROM node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package*.json ./
+RUN npm ci --omit=dev          # production deps only
+COPY --from=build /app/dist ./dist
+CMD ["node", "dist/index.js"]
+\`\`\`
+
+Key points:
+- The final image is based on a **smaller runtime base** (\`node:22-alpine\`, or even a distroless image) and never contains TypeScript, dev dependencies, or source \`.ts\` files.
+- \`COPY --from=build\` pulls only the artifacts you name across the stage boundary; the entire build stage (and its bloat) is discarded.
+- \`npm ci --omit=dev\` (or copying a pruned \`node_modules\`) keeps only production dependencies.
+
+This typically cuts a Node/TypeScript image from ~1 GB to ~150–200 MB, reducing pull time, attack surface, and cost.`,
+        answers: [
+          {
+            answer: "Use a multi-stage build: compile in a full-toolchain `build` stage, then `COPY --from=build` only `dist/` into a slim runtime stage (e.g. `node:22-alpine`) that installs production-only deps with `npm ci --omit=dev`.",
+            isCorrect: true,
+          },
+          {
+            answer: "Add `RUN npm prune --production` as the last line; this rewrites the earlier layers in place and removes the base image bloat and source files.",
+            isCorrect: false,
+          },
+          {
+            answer: "Set `.dockerignore` to exclude `node_modules`; this alone shrinks the final image to a lean runtime because dependencies are then downloaded at container start.",
+            isCorrect: false,
+          },
+          {
+            answer: "Switch the single `FROM node:22` to `FROM node:22-slim` — the toolchain and dev dependencies are automatically stripped from slim images at build time.",
+            isCorrect: false,
+          },
+        ],
+      },
+      {
+        question: `A Kubernetes cluster is under memory pressure and the kubelet must evict pods. Three pods run on the node with these resource specs. Which pod is evicted **first**, and what QoS classes do these specs produce?
+
+\`\`\`yaml
+# Pod A
+resources:
+  requests: { cpu: "250m", memory: "256Mi" }
+  limits:   { cpu: "250m", memory: "256Mi" }
+
+# Pod B
+resources:
+  requests: { cpu: "250m", memory: "256Mi" }
+  limits:   { cpu: "500m", memory: "512Mi" }
+
+# Pod C
+# (no resources block at all)
+\`\`\``,
+        explanation: `Kubernetes assigns each pod a **Quality of Service (QoS) class** based on its requests and limits, and uses that class to decide eviction order under node pressure:
+
+- **Pod A → \`Guaranteed\`**: every container sets \`requests == limits\` for *both* CPU and memory. These pods are the last to be evicted.
+- **Pod B → \`Burstable\`**: it sets requests, but limits differ from requests (or not all resources are constrained). Evicted after \`BestEffort\` but before \`Guaranteed\`.
+- **Pod C → \`BestEffort\`**: no requests or limits at all. These are the **first evicted** under resource pressure.
+
+So **Pod C is evicted first.** Under memory pressure the kubelet ranks candidates by QoS class (\`BestEffort\` → \`Burstable\` → \`Guaranteed\`) and, within a class, by how much a pod exceeds its memory request. \`BestEffort\` pods have no memory request, so they're the top eviction candidates.
+
+Practical guidance: set requests and limits deliberately. \`Guaranteed\` pods get the strongest protection and predictable performance; \`BestEffort\` pods are cheap to schedule but the first sacrificed. For critical workloads, set \`requests == limits\` to land in \`Guaranteed\`. Note also that exceeding a *memory limit* gets a container OOM-killed regardless of QoS — QoS governs *eviction under node pressure*, which is a separate mechanism.`,
+        answers: [
+          {
+            answer: "Pod C is evicted first. Pod A is `Guaranteed` (requests == limits for CPU and memory), Pod B is `Burstable` (requests set, limits differ), and Pod C is `BestEffort` (no requests/limits) — evicted first under node memory pressure.",
+            isCorrect: true,
+          },
+          {
+            answer: "Pod A is evicted first because its tight `limits` leave no headroom; Pods B and C are `Burstable` and can grow, so the scheduler protects them.",
+            isCorrect: false,
+          },
+          {
+            answer: "Pod B is evicted first because a mismatch between requests and limits makes it `BestEffort`; A and C are both `Guaranteed`.",
+            isCorrect: false,
+          },
+          {
+            answer: "Eviction order is random across all three — Kubernetes does not use resource specs to prioritize evictions, only pod age.",
+            isCorrect: false,
+          },
+        ],
+      },
+      {
+        question: `A Node.js API stores user passwords by hashing them with SHA-256 before saving to the database. A security reviewer flags this as insecure even though SHA-256 is cryptographically strong. Why is SHA-256 the wrong tool for password storage, and what should be used instead?`,
+        explanation: `SHA-256 is a **fast, general-purpose cryptographic hash** — and *fast* is exactly the problem for password storage. Two weaknesses make raw SHA-256 unsuitable:
+
+1. **Speed enables brute force.** Modern GPUs and ASICs compute *billions* of SHA-256 hashes per second. If a database leaks, an attacker can try enormous numbers of candidate passwords per second against each hash. Fast hashing is a feature for integrity/signatures but a liability for passwords.
+
+2. **No built-in salt → rainbow tables and shared hashes.** Without a per-user salt, identical passwords produce identical hashes, so an attacker sees which users share a password and can use precomputed **rainbow tables** to reverse common passwords instantly.
+
+The correct tool is a **slow, salted, adaptive password-hashing function** designed specifically for this purpose:
+- **bcrypt** — battle-tested, includes a per-hash salt automatically, with a tunable **work factor** (cost) you raise as hardware improves.
+- **scrypt** and **Argon2** (Argon2id is the current recommendation, PHC winner) — additionally **memory-hard**, defeating GPU/ASIC parallelism by requiring large amounts of RAM per guess.
+
+Example with bcrypt:
+\`\`\`javascript
+import bcrypt from "bcrypt";
+const hash = await bcrypt.hash(password, 12); // cost factor 12
+const ok   = await bcrypt.compare(password, hash);
+\`\`\`
+
+The deliberate slowness (tens of milliseconds per hash) is negligible for a single legitimate login but makes large-scale offline cracking economically infeasible. The salt is generated and stored inside the bcrypt output automatically, so identical passwords yield different hashes.`,
+        answers: [
+          {
+            answer: "SHA-256 is designed to be fast and is unsalted, so a leaked database can be brute-forced at billions of guesses per second and is vulnerable to rainbow tables. Use a slow, salted, adaptive hash like bcrypt, scrypt, or Argon2id instead.",
+            isCorrect: true,
+          },
+          {
+            answer: "SHA-256 is reversible if you know the input length, so attackers can decrypt the passwords directly. Use AES-256 encryption for passwords instead.",
+            isCorrect: false,
+          },
+          {
+            answer: "SHA-256 produces only 256 bits of output, which is too short to be secure for passwords. Use SHA-512 to double the hash length and fix the vulnerability.",
+            isCorrect: false,
+          },
+          {
+            answer: "SHA-256 is fine as long as you hash the password twice (SHA-256 of the SHA-256); double hashing adds the needed slowness and salting automatically.",
+            isCorrect: false,
+          },
+        ],
+      },
+      {
+        question: `A payment API endpoint is called by a mobile client. On flaky networks the client retries requests that time out, occasionally charging the same customer twice. The team wants to guarantee that retrying a request never causes a duplicate charge. What is the standard technique, and how does it work?`,
+        explanation: `The technique is an **idempotency key** (idempotent request pattern), used by Stripe, PayPal, and most robust payment APIs.
+
+**How it works:**
+1. The client generates a unique key (typically a UUID) for each *logical* operation — e.g., "charge \$50 for order #123" — and sends it in a header: \`Idempotency-Key: 9f8b...\`. Critically, **retries of the same operation reuse the same key**.
+2. On the server, before performing the charge, it checks a store (often Redis or a dedicated table) for that key:
+   - **Key not seen** → process the charge, then store the key together with the response (status + body) atomically.
+   - **Key already seen and completed** → skip the charge entirely and return the *stored* original response.
+   - **Key seen but still in progress** → return a "request in progress" / conflict response (or wait), so two concurrent retries don't both execute.
+3. Keys are given a TTL (e.g., 24 hours) since retries happen within a short window.
+
+The result: no matter how many times the client retries after a timeout, the charge executes **at most once**, and every retry returns the same response as the original. This safely turns an unreliable, at-least-once delivery channel into effectively exactly-once *semantics* for the side effect.
+
+Important nuances: the check-and-store must be **atomic** (e.g., an \`INSERT ... ON CONFLICT\` or a Redis \`SET NX\`) to handle concurrent retries; and the key must key on the *operation*, not be regenerated per HTTP attempt — otherwise retries look like new requests.`,
+        answers: [
+          {
+            answer: "Use an idempotency key: the client sends a unique key per logical operation (reused on retries); the server atomically records it, performs the charge only the first time it sees the key, and returns the stored original response for any retry.",
+            isCorrect: true,
+          },
+          {
+            answer: "Switch the endpoint from POST to PUT — PUT is idempotent by definition in HTTP, so the network layer automatically prevents the server from processing a retried charge twice.",
+            isCorrect: false,
+          },
+          {
+            answer: "Increase the client's request timeout so retries never fire; if the client never retries, duplicate charges cannot happen and no server-side changes are needed.",
+            isCorrect: false,
+          },
+          {
+            answer: "Wrap the charge in a database transaction with `SERIALIZABLE` isolation; transaction isolation guarantees that two separate HTTP requests for the same charge are collapsed into one.",
+            isCorrect: false,
+          },
+        ],
+      },
+      {
+        question: `This code models a coffee order using deep inheritance. Adding "iced" and "extra shot" as new inheritable options is causing a class explosion (\`IcedLatteWithExtraShot\`, \`IcedMochaWithSoy\`, …). Which design approach solves this, and what principle does it embody?
+
+\`\`\`typescript
+class Coffee { cost() { return 2.0; } }
+class Latte extends Coffee { cost() { return super.cost() + 0.5; } }
+class LatteWithSoy extends Latte { cost() { return super.cost() + 0.4; } }
+class LatteWithSoyAndExtraShot extends LatteWithSoy {
+  cost() { return super.cost() + 0.6; }
+}
+\`\`\``,
+        explanation: `The inheritance tree combinatorially explodes: every combination of add-ons (soy, extra shot, iced, mocha…) needs its own subclass. This is the textbook motivation for the **Decorator pattern**, an application of **composition over inheritance**.
+
+Instead of subclassing, wrap a base object in decorator objects that share the same interface and each add one piece of behavior:
+
+\`\`\`typescript
+interface Beverage { cost(): number; description(): string; }
+
+class Coffee implements Beverage {
+  cost() { return 2.0; }
+  description() { return "Coffee"; }
+}
+
+abstract class AddOn implements Beverage {
+  constructor(protected inner: Beverage) {}
+  abstract cost(): number;
+  abstract description(): string;
+}
+
+class Soy extends AddOn {
+  cost() { return this.inner.cost() + 0.4; }
+  description() { return this.inner.description() + " + Soy"; }
+}
+class ExtraShot extends AddOn {
+  cost() { return this.inner.cost() + 0.6; }
+  description() { return this.inner.description() + " + Extra Shot"; }
+}
+
+// Compose at runtime, in any combination, with no new classes:
+const order = new ExtraShot(new Soy(new Coffee()));
+order.cost();        // 3.0
+order.description(); // "Coffee + Soy + Extra Shot"
+\`\`\`
+
+Now *N* add-ons require *N* decorator classes, and they combine freely at runtime instead of requiring a class per combination (which would be 2^N). This embodies **"favor composition over inheritance"** and the **Open/Closed Principle** — you extend behavior by adding new decorators without modifying existing classes. Java's \`java.io\` streams (\`BufferedInputStream(new FileInputStream(...))\`) are a canonical real-world example.`,
+        answers: [
+          {
+            answer: "Use the Decorator pattern — wrap a base `Beverage` in add-on decorators that share its interface and each add one cost/behavior. It embodies composition over inheritance (and the Open/Closed Principle), so N add-ons combine freely instead of needing a subclass per combination.",
+            isCorrect: true,
+          },
+          {
+            answer: "Use the Singleton pattern so only one `Coffee` instance exists; shared mutable add-on flags on that instance eliminate the need for subclasses.",
+            isCorrect: false,
+          },
+          {
+            answer: "Deepen the inheritance hierarchy further and mark intermediate classes `abstract`; abstract base classes automatically collapse combinatorial subclasses.",
+            isCorrect: false,
+          },
+          {
+            answer: "Switch every add-on to a static utility function that mutates a global order object; global mutation is the standard fix for class explosion.",
+            isCorrect: false,
+          },
+        ],
+      },
+    ],
+  },
 ];
