@@ -1,0 +1,226 @@
+{
+  "id": "system-design",
+  "name": "System Design & Architecture",
+  "questions": [
+    {
+      "question": "Your team horizontally shards a PostgreSQL users table by `user_id` across 8 shards. A new feature requires looking up a user by `email` address (unique, but not the shard key). What happens when this query executes, and what is the standard mitigation?\n\n```sql\nSELECT * FROM users WHERE email = 'alice@example.com';\n```",
+      "explanation": "When a table is sharded by a key, the routing layer uses that key to direct queries to exactly one shard. A query on a **non-shard-key column** provides no routing information — the system cannot know which shard holds the row without inspecting all of them. The result is a **scatter-gather (fan-out) query**: the query is broadcast to every shard, each returns its matches, and the coordinator merges the results. At 8 shards this is manageable; at hundreds of shards it becomes a serious bottleneck.\n\nThe standard mitigation is a **lookup table**: a small, unsharded table that maps `email → user_id`. The application first queries the lookup table to resolve the `user_id`, then issues a routed single-shard query. AWS DynamoDB's Global Secondary Indexes and Vitess's VSchema implement this pattern at the infrastructure level. Another option is to maintain a search index (e.g., Elasticsearch) for non-key lookups.",
+      "answers": [
+        {
+          "answer": "The query fan-outs to all 8 shards (scatter-gather). The standard fix is a separate `email → user_id` lookup table to enable routed single-shard lookups.",
+          "isCorrect": true
+        },
+        {
+          "answer": "The query is automatically routed to the shard holding the matching email, since the database adapts when a unique index exists.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The query fails with an error — non-shard-key lookups are forbidden by the routing layer.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The query hits only shard 0 and returns an empty result if the user lives on a different shard.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "An e-commerce platform uses synchronous REST calls: when an order is placed, the Order Service calls the Inventory Service, Payment Service, and Notification Service **in sequence** before responding to the client. The Notification Service goes down, causing all order placements to fail.\n\nA solutions architect proposes migrating to an **event-driven architecture** using a message broker. What is the primary benefit, and what new operational complexity does it introduce?",
+      "explanation": "**Primary benefit: loose coupling and resilience.**\n\nIn an event-driven architecture, the Order Service publishes an `OrderPlaced` event to a message broker (Kafka, SQS, RabbitMQ) and immediately returns a success response. The Inventory, Payment, and Notification services each subscribe to and process the event independently. The Notification Service being down no longer blocks order placement — it simply falls behind in consuming events and catches up when it recovers. No service is directly dependent on another's availability.\n\nAdditional benefits: services can scale independently, teams can deploy them without coordinating releases, and new consumers (e.g., an analytics service) can subscribe without changing the producer.\n\n**New operational complexity:**\n\n1. **Eventual consistency**: the response to the client confirms the *event was accepted*, not that payment was charged or inventory was reserved. The system is eventually consistent — the UI must handle in-progress states gracefully.\n\n2. **Distributed tracing and observability**: a single business transaction (place order → charge payment → reserve inventory → notify) is now spread across multiple async hops. End-to-end tracing (OpenTelemetry correlation IDs) becomes essential.\n\n3. **Failure handling**: failed event processing must be handled via dead-letter queues, retry policies, and idempotency (the same event may be delivered more than once).\n\n4. **Ordering guarantees**: some workflows require events to be processed in order — this requires careful partitioning strategy on brokers like Kafka.",
+      "answers": [
+        {
+          "answer": "Primary benefit: loose coupling — the Order Service publishes an event and returns immediately; downstream services fail or lag independently without blocking orders. New complexity: eventual consistency, distributed tracing, idempotent consumers, and dead-letter queue management.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Primary benefit: lower latency — async messaging is always faster than synchronous HTTP. New complexity: increased memory usage on the broker as events accumulate.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Primary benefit: data normalization — events carry the full entity state, eliminating the need for each service to maintain its own database. New complexity: events become the source of truth and must be versioned carefully.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Primary benefit: automatic error handling — the message broker retries failed deliveries indefinitely, so application-level error handling is no longer needed. New complexity: configuring the broker's retry backoff.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A payment API endpoint is called by a mobile client. On flaky networks the client retries requests that time out, occasionally charging the same customer twice. The team wants to guarantee that retrying a request never causes a duplicate charge. What is the standard technique, and how does it work?",
+      "explanation": "The technique is an **idempotency key** (idempotent request pattern), used by Stripe, PayPal, and most robust payment APIs.\n\n**How it works:**\n1. The client generates a unique key (typically a UUID) for each *logical* operation — e.g., \"charge $50 for order #123\" — and sends it in a header: `Idempotency-Key: 9f8b...`. Critically, **retries of the same operation reuse the same key**.\n2. On the server, before performing the charge, it checks a store (often Redis or a dedicated table) for that key:\n   - **Key not seen** → process the charge, then store the key together with the response (status + body) atomically.\n   - **Key already seen and completed** → skip the charge entirely and return the *stored* original response.\n   - **Key seen but still in progress** → return a \"request in progress\" / conflict response (or wait), so two concurrent retries don't both execute.\n3. Keys are given a TTL (e.g., 24 hours) since retries happen within a short window.\n\nThe result: no matter how many times the client retries after a timeout, the charge executes **at most once**, and every retry returns the same response as the original. This safely turns an unreliable, at-least-once delivery channel into effectively exactly-once *semantics* for the side effect.\n\nImportant nuances: the check-and-store must be **atomic** (e.g., an `INSERT ... ON CONFLICT` or a Redis `SET NX`) to handle concurrent retries; and the key must key on the *operation*, not be regenerated per HTTP attempt — otherwise retries look like new requests.",
+      "answers": [
+        {
+          "answer": "Use an idempotency key: the client sends a unique key per logical operation (reused on retries); the server atomically records it, performs the charge only the first time it sees the key, and returns the stored original response for any retry.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Switch the endpoint from POST to PUT — PUT is idempotent by definition in HTTP, so the network layer automatically prevents the server from processing a retried charge twice.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Increase the client's request timeout so retries never fire; if the client never retries, duplicate charges cannot happen and no server-side changes are needed.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Wrap the charge in a database transaction with `SERIALIZABLE` isolation; transaction isolation guarantees that two separate HTTP requests for the same charge are collapsed into one.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A product page uses cache-aside with Redis: on a miss, the service queries the database and writes the result back with a 60-second TTL. Every time the homepage's most popular product key expires, database CPU spikes to 100% and requests time out for several seconds. What's happening, and what's an effective mitigation?",
+      "explanation": "This is a **cache stampede** (also called \"thundering herd\" or \"dog-piling\"). While the hot key is missing, **every concurrent request** misses the cache and runs the same expensive database query in parallel. Thousands of identical queries hit the database at once, and it falls over just as the cache was supposed to protect it.\n\nMitigations (often combined):\n- **Request coalescing / single-flight.** Only one request recomputes the value. Others wait for it or are served the stale value. In a distributed setting, take a short-lived Redis lock (`SET key:lock 1 NX PX 5000`) so only the lock holder queries the DB.\n- **Stale-while-revalidate.** Store a soft expiry inside the value with a longer hard TTL. After the soft expiry, serve the stale value while one worker refreshes it in the background.\n- **Probabilistic early expiration** (e.g. the XFetch algorithm). Each request has a small, growing chance of refreshing *before* expiry, so refreshes spread out.\n- **TTL jitter.** Randomize TTLs so many keys don't expire at the same instant.\n\nJust lengthening the TTL only makes the stampede less frequent. Adding read replicas raises the ceiling, but doesn't stop the synchronized burst.",
+      "answers": [
+        {
+          "answer": "A cache stampede: when the hot key expires, all concurrent requests miss and query the DB at once. Use request coalescing (a lock so one request recomputes), stale-while-revalidate, or probabilistic early refresh, plus TTL jitter.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Redis evicts hot keys first under its LRU policy. Switch the eviction policy to `noeviction` to keep popular keys cached.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Cache-aside is the wrong pattern. Use write-around caching so reads always go to the database and the cache can't expire.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The 60-second TTL is too long, so cached data becomes large. Lower the TTL to 5 seconds to keep entries small.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A public API must allow each API key a **sustained rate of 10 requests/second** but tolerate **short bursts of up to 100 requests**. The API runs on 12 stateless instances behind a load balancer. Which design meets these requirements?",
+      "explanation": "The **token bucket** algorithm models both requirements directly:\n- The bucket holds up to **capacity = 100** tokens (the burst allowance).\n- Tokens **refill at 10/second** (the sustained rate).\n- Each request consumes a token. If none are left, reject with `429 Too Many Requests` and a `Retry-After` header.\n\nBecause there are 12 stateless instances, the bucket state must be **shared**. The usual choice is Redis. The read-refill-consume logic must be **atomic** to avoid races between instances, typically with a Lua script (`EVAL`) that stores `tokens` and `last_refill_ts` per key.\n\nWhy the alternatives fail:\n- **In-memory limiters on each instance** let each key through at up to 12× the limit, and the effective limit changes as instances scale.\n- **Fixed-window counters** (N per calendar second or minute) allow up to 2× the limit around window boundaries and don't model a separate burst size.\n- **Sticky sessions** to pin each key to one instance break with scaling and failover, and they skew load.\n\nThe **leaky bucket** algorithm, by contrast, smooths output to a constant rate, which suits queue-like shaping rather than allowing bursts.",
+      "answers": [
+        {
+          "answer": "A token bucket per API key (capacity 100, refilling 10 tokens/second), with state in Redis updated atomically (e.g. a Lua script) so all instances share one limit.",
+          "isCorrect": true
+        },
+        {
+          "answer": "A fixed-window counter of 10 requests per second, kept in each instance's memory.",
+          "isCorrect": false
+        },
+        {
+          "answer": "A leaky bucket in each instance that queues excess requests indefinitely, so no request is ever rejected.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Sticky sessions so each API key always reaches the same instance, which then enforces a limit of 100 requests/second in memory.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A distributed cache cluster assigns keys to nodes with `node = hash(key) % N`. When it scales from 4 to 5 nodes, the cache hit rate collapses and the database is overwhelmed. Approximately what fraction of keys moved, and what technique minimizes this?",
+      "explanation": "With modulo hashing, a key stays on the same node only if `h % 4 == h % 5`. Over any run of 20 consecutive hash values, that's true only for `h ≡ 0, 1, 2, 3 (mod 20)`, which is 4 out of 20. So about **80% of keys move**. They all miss the cache simultaneously, and the database takes the full load.\n\n**Consistent hashing** maps both nodes and keys onto a hash **ring**. Each key belongs to the first node clockwise from it. Adding a node only takes over the keys in its slice of the ring, roughly **1/N of keys (about 20% here)**, all of which come from neighboring nodes. Every other key stays put.\n\nProduction systems add **virtual nodes**: each physical node appears at many points on the ring, which evens out the load and spreads a departing node's keys across all the survivors. Consistent hashing (or variants like rendezvous hashing and jump hash) is used by DynamoDB, Cassandra, memcached client libraries, and many load balancers.",
+      "answers": [
+        {
+          "answer": "About 80% of keys move with modulo hashing. Consistent hashing (a hash ring, with virtual nodes) remaps only about 1/N of the keys (around 20%) when a node is added.",
+          "isCorrect": true
+        },
+        {
+          "answer": "About 20% of keys move, since only one node in five is new. Modulo hashing already behaves optimally.",
+          "isCorrect": false
+        },
+        {
+          "answer": "100% of keys move. The fix is to always double the node count, which keeps every key in place.",
+          "isCorrect": false
+        },
+        {
+          "answer": "About 50% of keys move. Switching from MD5 to SHA-256 hashing reduces the amount of remapping.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "An order service saves the order and then publishes an event that downstream services rely on. Occasionally, orders exist in the database with no corresponding event. What's the underlying problem, and what's the standard pattern to solve it?\n\n```typescript\nawait db.transaction(async (tx) => {\n  await tx.orders.insert(order);\n});\n\nawait kafka.send({ topic: \"order-created\", messages: [{ value: JSON.stringify(order) }] });\n```",
+      "explanation": "This is the **dual-write problem**. Two separate systems (the database and Kafka) are updated without a shared transaction. If the process crashes, is redeployed, or Kafka is unavailable between the commit and the publish, the order exists but the event is lost forever. Reversing the order just creates the opposite bug: an event for an order that was never committed.\n\nThe **Transactional Outbox** pattern fixes this:\n1. In the **same database transaction** as the business write, insert the event into an `outbox` table.\n2. A separate **relay** publishes outbox rows to the broker and marks them as sent. The relay either polls the table or uses **change data capture**, e.g. Debezium tailing the Postgres WAL.\n\nThe event is now recorded *if and only if* the order commits. The relay may publish the same event more than once (after a crash between send and mark), so delivery is **at-least-once**, and consumers must be **idempotent** (e.g. dedupe by event ID).\n\nTwo-phase commit across Postgres and Kafka isn't practical: Kafka doesn't participate in XA transactions, and 2PC hurts availability. In-process retries don't survive a crash.",
+      "answers": [
+        {
+          "answer": "It's the dual-write problem: the DB commit and the Kafka publish aren't atomic. Use a transactional outbox: write the event to an outbox table in the same transaction, and have a relay or CDC process publish it (at-least-once, with idempotent consumers).",
+          "isCorrect": true
+        },
+        {
+          "answer": "Publish to Kafka first, then insert the order. If the insert fails, the event will just be ignored by consumers.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Wrap both calls in a distributed two-phase commit between Postgres and Kafka, which Kafka supports natively via XA.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Wrap `kafka.send` in a retry loop with exponential backoff. That guarantees the event is eventually published.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A checkout spans three microservices, each with its own database: **Payment** charges the card, **Inventory** reserves stock, and **Shipping** creates a shipment. If any step fails, the customer must not end up charged for an order that won't ship. Which approach is most appropriate?",
+      "explanation": "With a **database per service**, there's no single ACID transaction spanning all three. Two-phase commit across services is fragile (a blocking coordinator, poor availability) and is often unsupported by modern data stores and brokers.\n\nThe **Saga pattern** models the workflow as a sequence of **local transactions**. Each has a **compensating action** that semantically undoes it:\n\n| Step | Action | Compensation |\n|---|---|---|\n| 1 | Reserve stock | Release stock |\n| 2 | Charge card | Refund payment |\n| 3 | Create shipment | Cancel shipment |\n\nIf step 3 fails, the saga runs the compensations for the completed steps in reverse order: refund, then release stock.\n\nTwo coordination styles:\n- **Orchestration**: a central orchestrator (or a workflow engine like Temporal) tells each service what to do. It's easier to follow and monitor.\n- **Choreography**: services react to each other's events. That's looser coupling, but harder to trace as the flow grows.\n\nSagas provide **eventual consistency, not isolation**. Other transactions can see intermediate states (e.g. stock reserved but payment pending), so designs use semantic locks, pending statuses, and idempotent, retryable steps.",
+      "answers": [
+        {
+          "answer": "Use a Saga: a sequence of local transactions, each with a compensating action (refund payment, release stock), coordinated by an orchestrator or by events. This gives eventual consistency rather than ACID isolation.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Have all three services share a single database, so a normal ACID transaction can span them. That's the recommended microservice practice.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Use two-phase commit across all three services. It's the standard, highly available solution for microservices.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Call all three services in parallel and ignore failures. Retries at the API gateway guarantee every step eventually succeeds.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "After a user updates their display name, the profile page reloads and *sometimes* shows the old name for a second or two. Writes go to the primary database; reads go to asynchronously replicated read replicas. What's the issue, and what's a targeted fix?",
+      "explanation": "With **asynchronous replication**, replicas trail the primary by some **replication lag**, usually milliseconds but sometimes seconds under load. A read routed to a lagging replica immediately after a write returns stale data. This violates **read-your-writes** (read-after-write) consistency: a user expects to see their *own* changes.\n\nTargeted fixes that keep most reads on replicas:\n- **Read from the primary for a short window after a user's write.** Track a \"last write at\" timestamp in the session or a cookie and route that user's reads to the primary for N seconds.\n- **Position-based routing.** Record the primary's log position (Postgres LSN, MySQL GTID) after the write, and only read from a replica that has replayed past that point. Otherwise fall back to the primary.\n- Always read data that was **just modified by the current user** (e.g. their own profile) from the primary.\n- For simple UIs, **optimistically render** the value the client just submitted.\n\nMaking *all* replicas synchronous fixes staleness, but it adds write latency and couples write availability to every replica. Adding more replicas or cache layers doesn't address lag.",
+      "answers": [
+        {
+          "answer": "Replication lag breaks read-your-writes consistency. Route that user's reads to the primary for a short period after they write, or only read from replicas that have caught up to the write's log position (LSN).",
+          "isCorrect": true
+        },
+        {
+          "answer": "The browser is caching the old page. Add `Cache-Control: no-store` and the issue is fully resolved.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The replicas are under-provisioned. Adding more read replicas reduces lag proportionally and fixes the problem.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The primary hasn't committed the write yet. Switch the update to `SERIALIZABLE` isolation so it commits before returning.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "The Product Page service calls a Recommendations service. Recommendations becomes extremely slow (requests hang about 30 seconds before timing out). Within minutes, the Product Page service exhausts its connection pool and event-loop capacity, and the *entire product page* goes down, even though recommendations are optional. Which resilience patterns best prevent this cascading failure?",
+      "explanation": "A slow dependency is often worse than a dead one. Every request waiting on it **holds resources** (sockets, pool connections, memory, concurrency slots), and those resources run out, so failure **cascades** upstream.\n\nKey patterns:\n- **Aggressive timeouts**, sized to the dependency's normal latency (e.g. p99 plus a margin), not 30 seconds.\n- A **circuit breaker** wrapping the call:\n  - *Closed*: calls pass through while failures and timeouts are counted.\n  - *Open*: once a threshold is exceeded (e.g. 50% failures over 20 calls), calls **fail fast** without touching the dependency, for a cool-down period.\n  - *Half-open*: a few trial calls are allowed. Success closes the circuit, and failure opens it again.\n- A **fallback** for optional features: render the page without recommendations, or with cached or popular items (**graceful degradation**).\n- **Bulkheads**: give the dependency an isolated, bounded pool or concurrency limit, so it can't consume all shared capacity.\n\nRaising timeouts makes resource exhaustion worse. **Immediate retries** multiply load on an already struggling service (a *retry storm*). If you retry at all, use exponential backoff with jitter and retry budgets.",
+      "answers": [
+        {
+          "answer": "Use short timeouts plus a circuit breaker that fails fast once Recommendations is unhealthy, with a fallback (render without recommendations) and a bulkhead limiting concurrent calls to that dependency.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Raise the timeout to 60 seconds so slow requests eventually succeed instead of failing.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Retry each failed call immediately up to five times, so transient slowness is hidden from users.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Make the Recommendations call synchronous and blocking, so the Product Page handles one request at a time and can't be overloaded.",
+          "isCorrect": false
+        }
+      ]
+    }
+  ]
+}

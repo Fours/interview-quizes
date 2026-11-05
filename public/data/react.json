@@ -1,0 +1,226 @@
+{
+  "id": "react",
+  "name": "React",
+  "questions": [
+    {
+      "question": "A child component is wrapped in `React.memo`. Which of the following prop-passing patterns will cause it to **unnecessarily re-render** on every parent render?\n\n```tsx\nfunction Parent() {\n  const [count, setCount] = React.useState(0);\n\n  // Option A\n  const handleA = () => console.log('clicked');\n\n  // Option B\n  const handleB = React.useCallback(() => console.log('clicked'), []);\n\n  return (\n    <>\n      <button onClick={() => setCount(c => c + 1)}>Increment</button>\n      <MemoChild onAction={/* handleA or handleB */} />\n    </>\n  );\n}\n```",
+      "explanation": "`React.memo` performs a **shallow comparison** of props using `Object.is`. Functions are objects, and every time `Parent` renders, `handleA` is recreated as a brand-new function object — a different reference each render. `Object.is(prevHandleA, nextHandleA)` is always `false`, so `MemoChild` re-renders on every parent render despite the memoization wrapper.\n\n`useCallback` solves this by returning a **stable reference** across renders as long as its dependency array doesn't change. `handleB`'s reference is the same object on every render (since the deps array is empty), so `MemoChild`'s prop comparison passes and the re-render is skipped.\n\nThe same problem applies to object literals and arrays passed as props — `const options = { size: 'lg' }` defined inside a render function creates a new reference every time.",
+      "answers": [
+        {
+          "answer": "Passing `handleA` — a callback defined inline without `useCallback`",
+          "isCorrect": true
+        },
+        {
+          "answer": "Passing `handleB` — a `useCallback`-wrapped callback with an empty dependency array",
+          "isCorrect": false
+        },
+        {
+          "answer": "Passing a string constant as a prop",
+          "isCorrect": false
+        },
+        {
+          "answer": "Passing a number derived from `useState`",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "The following React component has a subtle bug. What is it, and what is the cleanest fix?\n\n```tsx\nfunction Counter() {\n  const [count, setCount] = React.useState(0);\n\n  React.useEffect(() => {\n    const id = setInterval(() => {\n      setCount(count + 1);\n    }, 1000);\n    return () => clearInterval(id);\n  }, []);\n\n  return <div>{count}</div>;\n}\n```",
+      "explanation": "The `setInterval` callback is created **once** (because of the empty dependency array `[]`) and **closes over** the value of `count` at that moment: `0`. Every second it computes `0 + 1 = 1` and calls `setCount(1)`. After the first tick, `count` is already `1`, so React bails out of re-rendering (same state value) and the counter is stuck at `1` forever. This is the classic **stale closure** bug.\n\nThe cleanest fix is the **functional updater form**:\n```tsx\nsetCount(c => c + 1);\n```\nThe updater receives the *current* state value as its argument at call time, completely bypassing the closed-over stale variable. You could also add `count` to the dependency array, but that restarts the interval on every tick — wasteful and potentially jittery. The functional updater solves the problem at the root without any side effects.",
+      "answers": [
+        {
+          "answer": "Stale closure: `count` is captured as `0` forever, so the counter gets stuck at `1`. Fix: use the functional updater form `setCount(c => c + 1)`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "There is no bug — the empty dependency array is correct and `useEffect` re-evaluates closures automatically on each render.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The `clearInterval` call in the cleanup function stops the interval after the first render, so the counter never increments past `0`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The bug is that `useState` is initialized to `0` instead of `null` — numeric initial state causes `setInterval` to behave incorrectly.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "In React, every consumer of this Context re-renders on each keystroke in an unrelated input, causing lag. What is the root cause, and what is a standard fix?\n\n```tsx\nfunction AppProvider({ children }: { children: React.ReactNode }) {\n  const [user, setUser] = React.useState<User | null>(null);\n  const [theme, setTheme] = React.useState<\"light\" | \"dark\">(\"light\");\n\n  return (\n    <AppContext.Provider value={{ user, setUser, theme, setTheme }}>\n      {children}\n    </AppContext.Provider>\n  );\n}\n```",
+      "explanation": "Two things combine to cause the problem:\n\n1. **A new `value` object every render.** The object literal `{ user, setUser, theme, setTheme }` is a fresh reference on every render of `AppProvider`. React Context compares the provider's `value` by reference (`Object.is`); a new object means every consumer is notified of a \"change.\"\n\n2. **All consumers of a single context re-render together.** Context has no partial-subscription mechanism. A component that only reads `theme` still re-renders whenever `user` (or anything else in the value) changes, because it subscribes to the whole context value.\n\nSo when unrelated state elsewhere triggers a provider re-render, the new `value` object propagates to *every* consumer.\n\n**Standard fixes:**\n- **Split contexts**: put `user` and `theme` in separate providers so consumers subscribe only to what they use. This is the most idiomatic fix.\n- **Memoize the value**: `const value = useMemo(() => ({ user, setUser, theme, setTheme }), [user, theme])` gives a stable reference so consumers re-render only when `user` or `theme` actually change — not on unrelated parent re-renders.\n- **Separate state from dispatch**: a common pattern is one context for state and another for the stable `dispatch`/setters, so components that only dispatch never re-render on state changes.\n- For fine-grained subscriptions at scale, an external store (Zustand, Redux with selectors, or `useSyncExternalStore`) lets components subscribe to slices.",
+      "answers": [
+        {
+          "answer": "The provider's `value` is a new object literal every render and all consumers of a context re-render together. Fix by splitting into separate contexts and/or memoizing the value with `useMemo` so it changes only when `user`/`theme` actually change.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Context always re-renders every component in the tree; the only fix is to stop using Context and lift all state into a Redux store.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The `useState` setters (`setUser`, `setTheme`) are recreated each render, so consumers must wrap them in `useCallback` — that alone eliminates the re-renders.",
+          "isCorrect": false
+        },
+        {
+          "answer": "React re-renders consumers because the provider is missing a `key` prop; adding a stable `key` to `AppContext.Provider` prevents the cascade.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A user types a note into the input next to the **first** todo. A new todo is then added to the **top** of the list, and the note now appears next to the *new* todo instead of the original one. What causes this?\n\n```tsx\nfunction TodoList({ todos }: { todos: Todo[] }) {\n  return (\n    <ul>\n      {todos.map((todo, i) => (\n        <li key={i}>\n          {todo.text} <input placeholder=\"note\" />\n        </li>\n      ))}\n    </ul>\n  );\n}\n```",
+      "explanation": "React uses `key` to match elements between renders. With `key={i}`, the element at index 0 has key `0` before *and* after the insertion. React concludes it's **the same component instance**, so it reuses its DOM node and state and only updates the changed text.\n\nThe `<input>` is **uncontrolled**: its typed value lives in the DOM node, not in React state. The DOM node that held the note stays at position 0 while its text changes to the new todo's. Every item effectively shifts its label relative to its input, and a new `<li>` with key `n` is appended at the end.\n\nFix: use a **stable, unique identifier** from the data (`key={todo.id}`). Then React sees that a new key appeared at the front and moves the existing nodes intact.\n\nIndex keys are only safe when the list is static: never reordered, filtered, or inserted into anywhere but the end.",
+      "answers": [
+        {
+          "answer": "Using the array index as the `key`. After the insert, index 0 maps to the new todo, so React reuses the first `<li>` and its uncontrolled input's DOM state. Use a stable unique ID, like `todo.id`, as the key.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Uncontrolled inputs always lose their position when a list re-renders. The only fix is to make every input controlled with `useState`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`todos.map` creates new elements every render, so React remounts the whole list and the browser restores input values by position.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The list needs `React.memo` on each `<li>`. Without it, React reassigns DOM nodes to list items arbitrarily.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "When a user quickly switches from profile A to profile B, the page sometimes ends up showing profile **A** even though `userId` is B. What's the bug, and what's the correct fix?\n\n```tsx\nfunction Profile({ userId }: { userId: string }) {\n  const [user, setUser] = useState<User | null>(null);\n\n  useEffect(() => {\n    fetch(`/api/users/${userId}`)\n      .then((r) => r.json())\n      .then(setUser);\n  }, [userId]);\n\n  return user ? <ProfileCard user={user} /> : <Spinner />;\n}\n```",
+      "explanation": "This is a **race condition**. Changing `userId` starts a second request, but the first is still in flight. Network responses can arrive **out of order**: if A's response arrives after B's, `setUser(A)` runs last and overwrites the correct data.\n\nThe fix is an **effect cleanup function**. React runs it before re-running the effect (and on unmount), so the stale request can be cancelled or ignored:\n\n```tsx\nuseEffect(() => {\n  const controller = new AbortController();\n  fetch(`/api/users/${userId}`, { signal: controller.signal })\n    .then((r) => r.json())\n    .then(setUser)\n    .catch((e) => { if (e.name !== \"AbortError\") throw e; });\n  return () => controller.abort();\n}, [userId]);\n```\n\nA simpler alternative is a local `let ignore = false;` flag that's set to `true` in the cleanup and checked before `setUser`.\n\nData-fetching libraries like TanStack Query and SWR handle this for you. That's one reason they're recommended over hand-rolled fetching in effects.",
+      "answers": [
+        {
+          "answer": "Responses can arrive out of order, so a stale response for A can overwrite B. Return a cleanup function from the effect that aborts the request (`AbortController`) or sets an `ignore` flag checked before calling `setUser`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "The dependency array should be empty (`[]`) so the fetch only runs once and can't race.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`setUser` is asynchronous. Wrap it in `flushSync` so the state update applies in the order the requests were sent.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`fetch` caches responses by URL prefix, so `/api/users/A` is served for B. Add `cache: \"no-store\"` to fix it.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A tooltip component must measure its own rendered size with `ref.current.getBoundingClientRect()` and then reposition itself so it doesn't overflow the viewport. With `useEffect`, users briefly see the tooltip in the wrong spot before it jumps into place. What's the correct fix?",
+      "explanation": "**`useEffect`** runs *after* the browser has painted (it's deferred, usually after paint). Measuring and repositioning there means the user sees one frame at the wrong position, then a second frame at the corrected position: a visible flicker.\n\n**`useLayoutEffect`** runs **synchronously after React has mutated the DOM but before the browser paints**. If you measure and call `setState` there, React re-renders synchronously and the browser paints only the final, correct position.\n\n```tsx\nuseLayoutEffect(() => {\n  const rect = ref.current!.getBoundingClientRect();\n  setPosition(computePosition(rect, window.innerWidth));\n}, [anchor]);\n```\n\nTrade-offs: it blocks painting, so keep the work small, and it doesn't run during server rendering.\n\n`useInsertionEffect` is intended for CSS-in-JS libraries to inject styles. It runs before refs are attached, so it can't measure. `useMemo` runs during render, before the DOM exists.",
+      "answers": [
+        {
+          "answer": "Do the measurement and position update in `useLayoutEffect`. It runs after DOM mutations but before the browser paints, so only the final position is ever shown.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Pass an empty dependency array to `useEffect`. Effects with `[]` run before the first paint.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Measure inside `useMemo`, which runs after the DOM is committed but before paint.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Use `useInsertionEffect`, the hook designed for reading layout before paint.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "This component logs the warning *\"A component is changing an uncontrolled input to be controlled.\"* Why?\n\n```tsx\nfunction EmailField() {\n  const [email, setEmail] = useState<string>();\n\n  return (\n    <input\n      type=\"email\"\n      value={email}\n      onChange={(e) => setEmail(e.target.value)}\n    />\n  );\n}\n```",
+      "explanation": "React decides whether an input is **controlled** by whether its `value` prop is `undefined` (or `null`):\n- `value={undefined}` means **uncontrolled**: the DOM owns the value.\n- `value=\"...\"` (any string) means **controlled**: React owns the value.\n\n`useState<string>()` has no initial value, so `email` starts as `undefined` and the input mounts as uncontrolled. After the first keystroke, `email` becomes a string and the input switches to controlled. React warns because switching modes mid-life is almost always a bug and can lose or desync the value.\n\nFix: initialize with an empty string, `useState(\"\")`, so the input is controlled from the first render.\n\nFor the opposite case, an input you deliberately leave uncontrolled, use `defaultValue` and read the value via a ref or `FormData` on submit.",
+      "answers": [
+        {
+          "answer": "`email` starts as `undefined`, so the input mounts uncontrolled and becomes controlled once the user types. Initialize state with `useState(\"\")`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Inputs with `type=\"email\"` must be uncontrolled. Remove the `value` prop and use `defaultValue`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`onChange` should be `onInput`. React only treats an input as controlled when `onInput` is used.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`setEmail` must be wrapped in `useCallback`, or React treats each render's input as a new uncontrolled element.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "In a Next.js App Router project, this file fails with an error about `useState`. What's the correct way to restructure it?\n\n```tsx\n// app/products/page.tsx  (no directive at the top of the file)\nimport { useState } from \"react\";\n\nexport default async function ProductsPage() {\n  const products = await db.product.findMany();\n  const [filter, setFilter] = useState(\"\");\n\n  return (\n    <>\n      <input value={filter} onChange={(e) => setFilter(e.target.value)} />\n      <ProductGrid products={products.filter((p) => p.name.includes(filter))} />\n    </>\n  );\n}\n```",
+      "explanation": "Files in the App Router are **React Server Components (RSC)** by default. Server Components:\n- run **only on the server** (at request or build time) and send rendered output to the client\n- **can** be `async` and access databases, the file system, and secrets directly\n- **cannot** use state or effects (`useState`, `useEffect`, etc.), browser APIs, or event handlers like `onChange`, because they never hydrate or re-render in the browser\n\nThe idiomatic structure keeps data fetching on the server and pushes interactivity down into a **Client Component**:\n\n```tsx\n// app/products/page.tsx (Server Component)\nexport default async function ProductsPage() {\n  const products = await db.product.findMany();\n  return <ProductFilter products={products} />;\n}\n\n// app/products/ProductFilter.tsx\n\"use client\";\nexport function ProductFilter({ products }: { products: Product[] }) {\n  const [filter, setFilter] = useState(\"\");\n  // ...\n}\n```\n\nProps passed from a Server Component to a Client Component must be **serializable**: no functions (other than Server Actions), and no class instances.",
+      "answers": [
+        {
+          "answer": "It's a Server Component, which can be `async` and query the DB but can't use state or event handlers. Keep the data fetching in the page and move the filter input and state into a separate `\"use client\"` component that receives `products` as props.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Add `\"use client\"` to the page and keep everything as is. Client Components can be `async` and query the database directly.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Replace `useState` with `useRef`. Refs are allowed in Server Components because they don't trigger re-renders.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Move `useState` above the `await`. Hooks are allowed in async Server Components as long as they're called before the first `await`.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "Using React 18+ with `createRoot` (and ignoring Strict Mode's double rendering), how many times does `Counter` re-render after one click?\n\n```tsx\nfunction Counter() {\n  const [a, setA] = useState(0);\n  const [b, setB] = useState(0);\n  console.log(\"render\", a, b);\n\n  const onClick = () => {\n    setTimeout(() => {\n      setA((x) => x + 1);\n      setB((x) => x + 1);\n    }, 0);\n  };\n\n  return <button onClick={onClick}>{a + b}</button>;\n}\n```",
+      "explanation": "React 18 introduced **automatic batching** for all updates when using `createRoot`. Multiple state updates in the same tick are grouped into **a single re-render**, whether they happen in event handlers, `setTimeout`, promises, native event listeners, or anywhere else.\n\nSo after the click, the two updates inside the timeout produce **one** render that logs `render 1 1`.\n\nIn **React 17 and earlier** (or with the legacy `ReactDOM.render`), batching only happened inside React event handlers. Updates in `setTimeout`/promises each triggered their own render, so this would have rendered **twice**, including an intermediate `render 1 0` state.\n\nIf you need a synchronous render between updates (rare, e.g. to read layout immediately), opt out with `flushSync` from `react-dom`.",
+      "answers": [
+        {
+          "answer": "Once. React 18's automatic batching groups both updates into a single render, even inside `setTimeout`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Twice. Batching only applies to updates made directly inside React event handlers, not inside timeouts.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Three times: once for the click event and once for each state update.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Zero times. State updates inside `setTimeout` are ignored unless wrapped in `startTransition`.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What's the main problem with this component, and what's the idiomatic fix?\n\n```tsx\nfunction FilteredList({ items, query }: { items: Item[]; query: string }) {\n  const [filtered, setFiltered] = useState(items);\n\n  useEffect(() => {\n    setFiltered(items.filter((i) => i.name.includes(query)));\n  }, [items, query]);\n\n  return <List items={filtered} />;\n}\n```",
+      "explanation": "`filtered` is **derived state**: it can be computed entirely from props. Mirroring it into state and syncing with an effect causes several problems:\n\n1. **Wasted renders with stale UI.** When `query` changes, React first renders with the *old* `filtered`, commits it, runs the effect, sets state, and renders again. Users can briefly see stale results.\n2. **Duplicated source of truth** that can drift out of sync (for example, if someone calls `setFiltered` elsewhere).\n3. More code and more to reason about.\n\nFix: **compute it during render**.\n\n```tsx\nconst filtered = items.filter((i) => i.name.includes(query));\n```\n\nIf the computation is genuinely expensive, memoize it:\n\n```tsx\nconst filtered = useMemo(\n  () => items.filter((i) => i.name.includes(query)),\n  [items, query]\n);\n```\n\nThe React docs call this out under \"You Might Not Need an Effect\": effects are for synchronizing with *external* systems, not for transforming data for rendering.",
+      "answers": [
+        {
+          "answer": "`filtered` is derived state. The effect causes an extra render that briefly shows stale results and creates a second source of truth. Compute it during render instead, wrapped in `useMemo` if it's expensive.",
+          "isCorrect": true
+        },
+        {
+          "answer": "The effect is missing `setFiltered` in its dependency array, which causes an infinite loop.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Nothing is wrong. Derived values must live in state, or React can't detect that they changed.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`useState(items)` should be `useState(() => items)`. The non-lazy initializer re-filters on every render.",
+          "isCorrect": false
+        }
+      ]
+    }
+  ]
+}

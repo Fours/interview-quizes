@@ -1,0 +1,226 @@
+{
+  "id": "oop-functional",
+  "name": "OOP & Functional Programming",
+  "questions": [
+    {
+      "question": "What does the following functional TypeScript code output?\n\n```typescript\nconst pipe = <T>(...fns: Array<(arg: T) => T>) => (x: T): T =>\n  fns.reduce((v, f) => f(v), x);\n\nconst double  = (n: number) => n * 2;\nconst addTen  = (n: number) => n + 10;\nconst square  = (n: number) => n * n;\n\nconst transform = pipe(double, addTen, square);\nconsole.log(transform(3));\n```\n\nAnd how does `pipe` differ from `compose`?",
+      "explanation": "`pipe` applies functions **left-to-right** using `reduce`, starting with the initial value `x`:\n\n1. `double(3)` → `6`\n2. `addTen(6)` → `16`\n3. `square(16)` → `256`\n\nOutput: **`256`**\n\n`compose` applies functions in the opposite order — **right-to-left** (like mathematical function composition: `f∘g∘h(x) = f(g(h(x)))`). The equivalent `compose(double, addTen, square)(3)` would compute `square(3)=9 → addTen(9)=19 → double(19)=38`.\n\nIn practice, `pipe` is more readable because the data flows in the same direction as your eye reads the code. Libraries like Ramda and fp-ts provide both. TypeScript's strict generic inference makes typing `pipe` for heterogeneous function chains (where output types differ between steps) require function overloads — the version above works only when all functions share the same type `T`.",
+      "answers": [
+        {
+          "answer": "`256`. `pipe` applies functions left-to-right: `double(3)=6 → addTen(6)=16 → square(16)=256`. `compose` applies right-to-left, the opposite order.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`38`. `pipe` applies functions right-to-left: `square(3)=9 → addTen(9)=19 → double(19)=38`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`676`. `pipe` sorts the functions by arity before applying them, so `addTen` runs first: `addTen(3)=13 → double(13)=26 → square(26)=676`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`36`. `pipe` with `reduce` applies only the first two functions; the third is used as the accumulator's initial value.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "The following TypeScript code demonstrates a classic OOP design flaw. What does `testArea` print for a `Square`, and which SOLID principle does the `Square extends Rectangle` hierarchy violate?\n\n```typescript\nclass Rectangle {\n  constructor(protected width: number, protected height: number) {}\n  setWidth(w: number)  { this.width = w; }\n  setHeight(h: number) { this.height = h; }\n  area() { return this.width * this.height; }\n}\n\nclass Square extends Rectangle {\n  setWidth(w: number)  { this.width = w;  this.height = w; }\n  setHeight(h: number) { this.width = h;  this.height = h; }\n}\n\nfunction testArea(rect: Rectangle) {\n  rect.setWidth(4);\n  rect.setHeight(5);\n  console.log(rect.area());\n}\n\ntestArea(new Rectangle(0, 0)); // 20\ntestArea(new Square(0, 0));    // ???\n```",
+      "explanation": "**Output for `Square`: `25`.**\n\n`setWidth(4)` sets both dimensions to 4. Then `setHeight(5)` overwrites both dimensions to 5 — the earlier width assignment is silently discarded. Area = 5 × 5 = **25**, not the expected 20.\n\nThis violates the **Liskov Substitution Principle (LSP)** — the \"L\" in SOLID. LSP states: *if S is a subtype of T, then objects of type T may be replaced with objects of type S without altering any of the desirable properties of the program*. Here, substituting a `Square` for a `Rectangle` breaks the implicit invariant that `setWidth` and `setHeight` operate independently.\n\nThe real-world lesson: **inheritance should model \"is-a\" in terms of behavior, not just shape**. A square *is* a rectangle geometrically, but it does not *behave* like a `Rectangle` in this API. The fix is to avoid the inheritance and instead use separate classes (possibly sharing an interface like `Shape`) or make `Rectangle` and `Square` both immutable value objects where side-effecting setters don't exist.",
+      "answers": [
+        {
+          "answer": "`25`. `setHeight(5)` overwrites the width set by `setWidth(4)`, so both dimensions end up as 5. This violates the **Liskov Substitution Principle** — a Square cannot be substituted for a Rectangle without breaking the program's expected behavior.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`20`. Square inherits Rectangle's setters and behaves identically, so testArea produces the same result for both. No SOLID principle is violated.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`16`. Square forces width = height throughout, so after both setters run, each dimension is 4 (the last consistent state). This violates the Open/Closed Principle.",
+          "isCorrect": false
+        },
+        {
+          "answer": "A TypeError is thrown because TypeScript prevents instantiating a subclass that overrides parent methods with different behavior at runtime.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "This code models a coffee order using deep inheritance. Adding \"iced\" and \"extra shot\" as new inheritable options is causing a class explosion (`IcedLatteWithExtraShot`, `IcedMochaWithSoy`, …). Which design approach solves this, and what principle does it embody?\n\n```typescript\nclass Coffee { cost() { return 2.0; } }\nclass Latte extends Coffee { cost() { return super.cost() + 0.5; } }\nclass LatteWithSoy extends Latte { cost() { return super.cost() + 0.4; } }\nclass LatteWithSoyAndExtraShot extends LatteWithSoy {\n  cost() { return super.cost() + 0.6; }\n}\n```",
+      "explanation": "The inheritance tree combinatorially explodes: every combination of add-ons (soy, extra shot, iced, mocha…) needs its own subclass. This is the textbook motivation for the **Decorator pattern**, an application of **composition over inheritance**.\n\nInstead of subclassing, wrap a base object in decorator objects that share the same interface and each add one piece of behavior:\n\n```typescript\ninterface Beverage { cost(): number; description(): string; }\n\nclass Coffee implements Beverage {\n  cost() { return 2.0; }\n  description() { return \"Coffee\"; }\n}\n\nabstract class AddOn implements Beverage {\n  constructor(protected inner: Beverage) {}\n  abstract cost(): number;\n  abstract description(): string;\n}\n\nclass Soy extends AddOn {\n  cost() { return this.inner.cost() + 0.4; }\n  description() { return this.inner.description() + \" + Soy\"; }\n}\nclass ExtraShot extends AddOn {\n  cost() { return this.inner.cost() + 0.6; }\n  description() { return this.inner.description() + \" + Extra Shot\"; }\n}\n\n// Compose at runtime, in any combination, with no new classes:\nconst order = new ExtraShot(new Soy(new Coffee()));\norder.cost();        // 3.0\norder.description(); // \"Coffee + Soy + Extra Shot\"\n```\n\nNow *N* add-ons require *N* decorator classes, and they combine freely at runtime instead of requiring a class per combination (which would be 2^N). This embodies **\"favor composition over inheritance\"** and the **Open/Closed Principle** — you extend behavior by adding new decorators without modifying existing classes. Java's `java.io` streams (`BufferedInputStream(new FileInputStream(...))`) are a canonical real-world example.",
+      "answers": [
+        {
+          "answer": "Use the Decorator pattern — wrap a base `Beverage` in add-on decorators that share its interface and each add one cost/behavior. It embodies composition over inheritance (and the Open/Closed Principle), so N add-ons combine freely instead of needing a subclass per combination.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Use the Singleton pattern so only one `Coffee` instance exists; shared mutable add-on flags on that instance eliminate the need for subclasses.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Deepen the inheritance hierarchy further and mark intermediate classes `abstract`; abstract base classes automatically collapse combinatorial subclasses.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Switch every add-on to a static utility function that mutates a global order object; global mutation is the standard fix for class explosion.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "Which of these functions are **pure**?\n\n```typescript\nlet taxRate = 0.2;\n\nconst a = (price: number) => price * (1 + taxRate);\n\nconst b = (items: number[]) => {\n  items.push(0);\n  return items.length;\n};\n\nconst c = (price: number, rate: number) => price * (1 + rate);\n\nconst d = (price: number) => {\n  console.log(price);\n  return price * 2;\n};\n```",
+      "explanation": "A **pure function** satisfies two conditions:\n1. **Deterministic**: the same inputs always produce the same output.\n2. **No side effects**: it doesn't mutate external state or its arguments, or perform I/O.\n\n- **`a`** reads the mutable outer variable `taxRate`. If `taxRate` changes, `a(100)` returns a different value, so it isn't deterministic.\n- **`b`** **mutates its argument** (`items.push`), which is a side effect visible to the caller.\n- **`c`** depends only on its parameters and changes nothing, so it's **pure**.\n- **`d`** writes to the console, which is I/O and therefore a side effect.\n\nPure functions are **referentially transparent**: any call can be replaced with its result without changing program behavior. That makes them trivial to test, safe to memoize, and safe to run in parallel or reorder. Functional architectures push side effects (I/O, logging, mutation) to the edges, sometimes described as a \"functional core, imperative shell\".",
+      "answers": [
+        {
+          "answer": "Only `c`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`a` and `c`. Reading an outer variable is fine as long as the function doesn't write to it.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`c` and `d`. Logging doesn't change the return value, so it doesn't count as a side effect.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`a`, `c`, and `d`. Only `b` is impure, because only `b` mutates data.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What happens when this code runs?\n\n```javascript\n\"use strict\";\n\nconst config = Object.freeze({\n  db: { host: \"localhost\" },\n  retries: 3,\n});\n\nconfig.db.host = \"prod.example.com\";\nconsole.log(config.db.host);\n\nconfig.retries = 5;\n```",
+      "explanation": "**`Object.freeze` is shallow.** It makes the object's *own* properties non-writable and non-configurable and prevents adding new ones, but it doesn't freeze nested objects.\n\n- `config.db` is a reference to a separate, unfrozen object, so `config.db.host = \"prod.example.com\"` **succeeds**, and the log prints `prod.example.com`.\n- `config.retries = 5` writes to a frozen property. In **strict mode** this throws `TypeError: Cannot assign to read only property 'retries'`. (In sloppy mode it would fail silently.)\n\nDeep immutability needs a recursive \"deep freeze\", immutable data structures (Immutable.js), or structural-sharing helpers like Immer.\n\nIn TypeScript, `Readonly<T>` and `as const` provide **compile-time** immutability only (also shallow for `Readonly<T>`). They have no runtime effect.",
+      "answers": [
+        {
+          "answer": "It logs `prod.example.com`, then throws a `TypeError` on `config.retries = 5`. `freeze` is shallow, so the nested `db` object stays mutable.",
+          "isCorrect": true
+        },
+        {
+          "answer": "It throws a `TypeError` on the first assignment, because `Object.freeze` recursively freezes nested objects.",
+          "isCorrect": false
+        },
+        {
+          "answer": "It logs `localhost`, and both assignments silently fail.",
+          "isCorrect": false
+        },
+        {
+          "answer": "It logs `prod.example.com`, and `config.retries` silently stays `3`, since frozen objects never throw.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What does this log, and which terms correctly describe `add3` and `addTo10`?\n\n```typescript\nconst add3 = (a: number) => (b: number) => (c: number) => a + b + c;\n\nconst addTo10 = add3(10);\nconsole.log(addTo10(5)(1));\n```",
+      "explanation": "**Currying** transforms a function of N arguments into a chain of N **unary** functions, each returning the next. `add3` is a curried three-argument addition: `add3(a)(b)(c)`.\n\n**Partial application** fixes *some* of a function's arguments and produces a new function that takes the rest. `add3(10)` partially applies `a = 10`, giving `addTo10`, which still needs `b` and `c`.\n\n`addTo10(5)(1)` computes `10 + 5 + 1 = 16`. Each inner arrow function forms a **closure** over the arguments supplied so far.\n\nCurrying makes it easy to build specialized functions and to compose them in `pipe`/`compose` chains, where every step must take exactly one argument:\n\n```typescript\nconst withPrefix = (prefix: string) => (msg: string) => `${prefix} ${msg}`;\nconst warn = withPrefix(\"[WARN]\");\n```",
+      "answers": [
+        {
+          "answer": "`16`. `add3` is a curried function (a chain of unary functions), and `addTo10` is the result of partially applying it with `a = 10`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`16`. `add3` is a higher-order *memoized* function, and `addTo10` is a cached result.",
+          "isCorrect": false
+        },
+        {
+          "answer": "A function. `addTo10(5)(1)` still needs one more argument, because currying adds an extra level.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`NaN`. `c` is `undefined` when the inner function runs, because closures don't capture arguments from outer calls.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "Unit testing `OrderService` is painful: tests need a real Postgres database and accidentally send real emails. Which design principle does this class violate, and what's the fix?\n\n```typescript\nclass OrderService {\n  private repo = new PostgresOrderRepository();\n  private mailer = new SendGridMailer();\n\n  async place(order: Order) {\n    await this.repo.save(order);\n    await this.mailer.send(order.customerEmail, \"Order confirmed\");\n  }\n}\n```",
+      "explanation": "The **Dependency Inversion Principle** (the \"D\" in SOLID) says:\n1. High-level modules (business logic like `OrderService`) shouldn't depend on low-level modules (Postgres, SendGrid). Both should depend on **abstractions**.\n2. Abstractions shouldn't depend on details.\n\nHere `OrderService` constructs its concrete dependencies itself, so it's **tightly coupled** to them. You can't substitute an in-memory repository or a fake mailer in tests, or switch providers, without editing the class.\n\nFix: define interfaces owned by the domain, and **inject** implementations, usually via the constructor:\n\n```typescript\ninterface OrderRepository { save(order: Order): Promise<void> }\ninterface Mailer { send(to: string, subject: string): Promise<void> }\n\nclass OrderService {\n  constructor(\n    private readonly repo: OrderRepository,\n    private readonly mailer: Mailer,\n  ) {}\n  // ...\n}\n\n// production\nnew OrderService(new PostgresOrderRepository(), new SendGridMailer());\n// test\nnew OrderService(new InMemoryOrderRepository(), new FakeMailer());\n```\n\nDependency injection (constructor injection, optionally with a DI container) is the technique. DIP is the principle.",
+      "answers": [
+        {
+          "answer": "The Dependency Inversion Principle. Have `OrderService` depend on `OrderRepository` and `Mailer` interfaces, and inject concrete implementations through the constructor so tests can pass fakes.",
+          "isCorrect": true
+        },
+        {
+          "answer": "The Single Responsibility Principle. Split `place` into two classes, one that saves and one that sends email, and the coupling goes away.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The Liskov Substitution Principle. Make `OrderService` extend `PostgresOrderRepository` so it inherits `save`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The Interface Segregation Principle. Make the repository and mailer singletons so the tests share one instance.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "This function is edited every time the business adds a shipping carrier, and similar `switch (order.carrier)` blocks exist in six other places (labels, tracking URLs, cut-off times, ...). Which refactoring best addresses this?\n\n```typescript\nfunction shippingCost(order: Order): number {\n  switch (order.carrier) {\n    case \"ups\":   return 5 + order.weightKg * 1.2;\n    case \"fedex\": return 7 + order.weightKg * 1.0;\n    case \"dhl\":   return 6 + order.weightKg * 1.1;\n    default: throw new Error(`Unknown carrier ${order.carrier}`);\n  }\n}\n```",
+      "explanation": "Scattered type-switches violate the **Open/Closed Principle**: modules should be *open for extension but closed for modification*. Adding a carrier means hunting down and editing every switch, and missing one is a bug.\n\nThe **Strategy pattern** replaces conditional logic with **polymorphism**. Each carrier is an object that implements a common interface and encapsulates *all* carrier-specific behavior:\n\n```typescript\ninterface Carrier {\n  cost(order: Order): number;\n  label(order: Order): Label;\n  trackingUrl(id: string): string;\n}\n\nconst carriers: Record<string, Carrier> = {\n  ups: new UpsCarrier(),\n  fedex: new FedexCarrier(),\n  dhl: new DhlCarrier(),\n};\n\nconst shippingCost = (order: Order) => carriers[order.carrier].cost(order);\n```\n\nAdding a carrier now means writing one new class and registering it, with no edits to existing logic. (A functional alternative is a map of carrier name → object of functions. It's the same idea.)\n\nA long switch isn't always wrong. For a closed set that rarely changes, a discriminated union with an exhaustive switch is fine. The smell here is *frequent change* combined with *duplication across many places*.",
+      "answers": [
+        {
+          "answer": "Apply the Strategy pattern. Define a `Carrier` interface with `cost`, `label`, `trackingUrl`, etc., implement one class per carrier, and look carriers up from a registry, so new carriers are added without modifying existing code (Open/Closed Principle).",
+          "isCorrect": true
+        },
+        {
+          "answer": "Create a base `Order` class and a subclass per carrier (`UpsOrder`, `FedexOrder`, ...), so the order type determines the carrier.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Replace the `switch` with an `if/else` chain. It's more readable and performs better for string comparisons.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Move all seven `switch` statements into one `CarrierUtils` class with static methods, so they're edited in one file.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What does this code print?\n\n```typescript\nclass Account {\n  private balance = 100;\n  #pin = 1234;\n}\n\nconst acct = new Account();\nconsole.log((acct as any).balance);\nconsole.log((acct as any)[\"#pin\"]);\nconsole.log(JSON.stringify(acct));\n```",
+      "explanation": "TypeScript's **`private` modifier is compile-time only**. It's erased during compilation, so at runtime `balance` is an ordinary public property. Casting to `any` (or using bracket notation) bypasses the check, so `acct.balance` is `100`, and it shows up in `JSON.stringify`, `Object.keys`, and console logs.\n\n**`#pin`** is a JavaScript **private class field** (ES2022), enforced by the runtime (\"hard privacy\"):\n- It isn't a string-keyed property at all, so `acct[\"#pin\"]` looks up a property literally named `\"#pin\"`, which doesn't exist: `undefined`.\n- It's invisible to `JSON.stringify`, `Object.keys`, `for...in`, and proxies.\n- Accessing `acct.#pin` outside the class body is a **syntax error**.\n\nOutput:\n```\n100\nundefined\n{\"balance\":100}\n```\n\nUse `#private` when the data must be truly encapsulated, such as secrets or library internals. TS `private` is fine for design-time encapsulation within a codebase you control.",
+      "answers": [
+        {
+          "answer": "`100`, `undefined`, `{\"balance\":100}`. TypeScript's `private` is erased at runtime, while `#pin` is a true runtime-private field that isn't reachable by any string key.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`undefined`, `undefined`, `{}`. Both modifiers hide the fields at runtime.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`100`, `1234`, `{\"balance\":100,\"#pin\":1234}`. `#` is just a naming convention for private fields.",
+          "isCorrect": false
+        },
+        {
+          "answer": "A runtime `TypeError` on the first `console.log`, because accessing a `private` member throws.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What does this code log?\n\n```typescript\ntype Result<T, E> = { ok: true; value: T } | { ok: false; error: E };\n\nconst map = <T, U, E>(r: Result<T, E>, f: (t: T) => U): Result<U, E> =>\n  r.ok ? { ok: true, value: f(r.value) } : r;\n\nconst parseAge = (s: string): Result<number, string> => {\n  const n = Number(s);\n  return Number.isInteger(n) && n >= 0\n    ? { ok: true, value: n }\n    : { ok: false, error: `bad age: ${s}` };\n};\n\nconsole.log(map(parseAge(\"abc\"), (n) => n + 1));\n```",
+      "explanation": "`Number(\"abc\")` is `NaN`, and `Number.isInteger(NaN)` is `false`, so `parseAge` returns `{ ok: false, error: \"bad age: abc\" }`.\n\n`map` only applies `f` on the **success** branch. On the failure branch it returns the error **unchanged**, so `f` is never called. The output is:\n\n```\n{ ok: false, error: 'bad age: abc' }\n```\n\nThis is the **Result (Either) type** from functional programming. It's a *functor*: `map` transforms the success value while passing failures through. Adding a `flatMap` (`andThen`) that chains functions which themselves return `Result` makes it monadic.\n\nCompared to throwing exceptions:\n- Failures are **visible in the type signature**, and the compiler forces callers to handle them.\n- Pipelines of fallible steps compose cleanly, short-circuiting on the first error without `try/catch` at every level.\n\nLibraries like `neverthrow` and `Effect` offer production-ready versions. Rust's `Result` and Haskell's `Either` are the canonical examples.",
+      "answers": [
+        {
+          "answer": "`{ ok: false, error: 'bad age: abc' }`. `map` passes the failure through untouched and never calls the mapping function.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`{ ok: true, value: NaN }`. `Number(\"abc\")` produces `NaN`, which is a valid number, and `map` adds 1 to it.",
+          "isCorrect": false
+        },
+        {
+          "answer": "It throws `TypeError: r.value is undefined`, because `map` calls `f` on the error branch.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`{ ok: false, error: 'bad age: abc', value: NaN }`. `map` merges the mapped value into the error result.",
+          "isCorrect": false
+        }
+      ]
+    }
+  ]
+}

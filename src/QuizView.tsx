@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { Quiz } from './quizes.ts'
+import type { Quiz } from './quizData.ts'
 import { Markdown } from './Markdown.tsx'
 import { loadQuizProgress, saveQuizProgress } from './storage.ts'
 import type { QuizAnswer } from './storage.ts'
@@ -60,6 +60,7 @@ export function QuizView({ quiz, onBack }: Props) {
     saveQuizProgress(quiz.id, {
       questionsAnswered: Object.keys(newSessionAnswers).length,
       correctAnswers: Object.values(newSessionAnswers).filter((a) => a.isCorrect).length,
+      totalQuestions: quiz.questions.length,
       answers: newSessionAnswers,
     })
   }

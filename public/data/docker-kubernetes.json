@@ -1,0 +1,226 @@
+{
+  "id": "docker-kubernetes",
+  "name": "Docker & Kubernetes",
+  "questions": [
+    {
+      "question": "The following Dockerfile builds a Node.js API. A developer notices that every source code change — even a one-line edit in `src/index.ts` — causes `npm ci` to re-run, adding 90 seconds to every build. What is the root cause, and what change fixes it?\n\n```dockerfile\nFROM node:22-alpine\nWORKDIR /app\nCOPY . .\nRUN npm ci\nRUN npm run build\nCMD [\"node\", \"dist/index.js\"]\n```",
+      "explanation": "Docker builds images layer by layer and **caches each layer**. A layer is invalidated — and all subsequent layers rebuild from scratch — whenever its instruction or the files it depends on change. In this Dockerfile, `COPY . .` copies the entire source tree (including `src/`, `package.json`, `package-lock.json`, and everything else) into one layer. Any file change invalidates that layer, forcing `npm ci` to re-run every time.\n\nThe fix is to copy only the dependency manifests first, install dependencies, then copy the rest of the source:\n\n```dockerfile\nFROM node:22-alpine\nWORKDIR /app\nCOPY package.json package-lock.json ./\nRUN npm ci\nCOPY . .\nRUN npm run build\nCMD [\"node\", \"dist/index.js\"]\n```\n\nNow the `npm ci` layer is only invalidated when `package.json` or `package-lock.json` actually change. Source-only edits hit the cache for the install step and only rebuild the `COPY . .` and `npm run build` layers — reducing incremental build time from 90 seconds to a few seconds. This is one of the highest-impact Dockerfile optimizations for development velocity.",
+      "answers": [
+        {
+          "answer": "`COPY . .` copies all source files before `npm ci`, so any file change invalidates the install layer. Fix: copy only `package.json`/`package-lock.json`, run `npm ci`, then copy the full source.",
+          "isCorrect": true
+        },
+        {
+          "answer": "The `node:22-alpine` base image doesn't support layer caching. Switching to `node:22` enables it.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`npm ci` always deletes and reinstalls `node_modules` regardless of cache. Replace it with `npm install --prefer-offline` to use the cache.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Merging `RUN npm ci` and `RUN npm run build` into a single `RUN` instruction with `&&` would eliminate the cache invalidation.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A Kubernetes Deployment has both a **liveness probe** and a **readiness probe** configured. The application takes 20 seconds to start up, but the liveness probe begins checking at second 5 with a `failureThreshold` of 3 and `periodSeconds` of 5. What happens, and how should the probes be correctly configured?",
+      "explanation": "**Liveness probe failure** signals to Kubernetes that the container is stuck or unrecoverable — Kubernetes kills and restarts it per the pod's `restartPolicy`. With a `failureThreshold` of 3 and `periodSeconds` of 5, the liveness probe declares the container dead at second 20 (5s start + 3×5s). Since the app needs exactly 20 seconds to start, the container gets killed just as it would be finishing startup, creating a **crash loop**.\n\n**Readiness probe failure** is gentler: Kubernetes removes the pod from the Service's endpoint list (stopping new traffic), but does not restart the container. This is the appropriate behavior during startup.\n\nThe correct solution uses a **`startupProbe`**: while the startup probe is failing, liveness and readiness probes are completely suspended. Only after the startup probe succeeds do the other probes activate. Configure it with a generous budget:\n\n```yaml\nstartupProbe:\n  httpGet:\n    path: /healthz\n    port: 8080\n  failureThreshold: 30\n  periodSeconds: 2   # 60-second startup budget\nlivenessProbe:\n  httpGet:\n    path: /healthz\n    port: 8080\n  periodSeconds: 10\nreadinessProbe:\n  httpGet:\n    path: /ready\n    port: 8080\n  periodSeconds: 5\n```\n\nThis gives the app a 60-second startup window without affecting the tighter runtime health checking cadence.",
+      "answers": [
+        {
+          "answer": "Kubernetes kills the container in a crash loop before it finishes starting. Fix: add a `startupProbe` with a generous `failureThreshold` to suspend liveness/readiness checking during startup.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Kubernetes removes the pod from Service endpoints but does not restart it, so the app eventually finishes starting and traffic resumes automatically.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Both probes are suspended until the container's main process signals readiness via a lifecycle hook, so a 20-second startup has no effect.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Kubernetes scales up a replacement pod and terminates the slow pod only after the replacement passes its readiness probe.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "You need to deploy a 3-node MongoDB replica set on Kubernetes. Each node requires:\n- A stable, predictable DNS name (`mongo-0`, `mongo-1`, `mongo-2`)\n- Its own dedicated persistent volume that survives pod restarts and rescheduling\n\nWhich Kubernetes workload resource should you use, and why is a `Deployment` insufficient for this use case?",
+      "explanation": "Use a **StatefulSet**. StatefulSets are designed specifically for stateful workloads that require stable identities and dedicated storage:\n\n1. **Stable pod names**: pods are named `<statefulset>-0`, `<statefulset>-1`, etc. and are recreated with the same name after restarts. Combined with a Headless Service, each pod gets a DNS entry like `mongo-0.mongo.default.svc.cluster.local`. MongoDB replica set configuration requires knowing each member's address in advance — these stable names make that possible.\n\n2. **Per-pod PersistentVolumeClaims**: the `volumeClaimTemplates` field creates a separate PVC for each pod (`data-mongo-0`, `data-mongo-1`, etc.). When `mongo-0` is rescheduled to a different node, it reattaches to its original PVC and retains all data.\n\n**Why a Deployment fails here:**\n- Deployment pods are **stateless and interchangeable** — they share no stable identity. Pod names include random suffixes (`mongo-abc12`) and change on restart.\n- All replicas in a Deployment share a single PVC if one is mounted, or each gets a new anonymous PVC on reschedule (losing data).\n- There's no guaranteed ordering for startup/shutdown — MongoDB replica set initialization requires sequential, ordered startup.\n\nStatefulSets also provide ordered rolling updates and graceful ordered termination, both important for maintaining replica set quorum during upgrades.",
+      "answers": [
+        {
+          "answer": "Use a **StatefulSet**. It provides stable pod names (`mongo-0`, `mongo-1`, `mongo-2`), per-pod PVCs via `volumeClaimTemplates`, and ordered startup/shutdown. A Deployment's pods are anonymous and interchangeable — they have no stable identity and share or lose storage on reschedule.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Use a **Deployment** with a `ReadWriteMany` PVC shared across all replicas — MongoDB handles data distribution internally so dedicated volumes are unnecessary.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Use a **DaemonSet** — it ensures exactly one MongoDB pod per node, providing the physical isolation and stable node-based addressing the replica set needs.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Use a **Deployment** with pod affinity rules and `nodeSelector` labels — this pins each pod to a specific node, simulating stable identity without the overhead of a StatefulSet.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "The final production image built from this Dockerfile is 1.1 GB and contains the full TypeScript toolchain, dev dependencies, and source `.ts` files. What technique reduces it to a lean runtime image, and roughly what should the production stage contain?\n\n```dockerfile\nFROM node:22\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci\nCOPY . .\nRUN npm run build          # tsc -> dist/\nCMD [\"node\", \"dist/index.js\"]\n```",
+      "explanation": "The problem: a single-stage build ships **everything** used to *build* the app in the image that *runs* it — the full `node:22` image (~1 GB), all `devDependencies` (TypeScript, type definitions, test tooling), and the original `.ts` source. None of that is needed at runtime; only the compiled `dist/` and production `node_modules` are.\n\nThe technique is a **multi-stage build**. Use a `build` stage with the full toolchain to compile, then a separate slim `runtime` stage that copies *only* the compiled output and production dependencies:\n\n```dockerfile\n# ---- build stage ----\nFROM node:22 AS build\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci\nCOPY . .\nRUN npm run build\n\n# ---- runtime stage ----\nFROM node:22-alpine AS runtime\nWORKDIR /app\nENV NODE_ENV=production\nCOPY package*.json ./\nRUN npm ci --omit=dev          # production deps only\nCOPY --from=build /app/dist ./dist\nCMD [\"node\", \"dist/index.js\"]\n```\n\nKey points:\n- The final image is based on a **smaller runtime base** (`node:22-alpine`, or even a distroless image) and never contains TypeScript, dev dependencies, or source `.ts` files.\n- `COPY --from=build` pulls only the artifacts you name across the stage boundary; the entire build stage (and its bloat) is discarded.\n- `npm ci --omit=dev` (or copying a pruned `node_modules`) keeps only production dependencies.\n\nThis typically cuts a Node/TypeScript image from ~1 GB to ~150–200 MB, reducing pull time, attack surface, and cost.",
+      "answers": [
+        {
+          "answer": "Use a multi-stage build: compile in a full-toolchain `build` stage, then `COPY --from=build` only `dist/` into a slim runtime stage (e.g. `node:22-alpine`) that installs production-only deps with `npm ci --omit=dev`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Add `RUN npm prune --production` as the last line; this rewrites the earlier layers in place and removes the base image bloat and source files.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Set `.dockerignore` to exclude `node_modules`; this alone shrinks the final image to a lean runtime because dependencies are then downloaded at container start.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Switch the single `FROM node:22` to `FROM node:22-slim` — the toolchain and dev dependencies are automatically stripped from slim images at build time.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A Kubernetes cluster is under memory pressure and the kubelet must evict pods. Three pods run on the node with these resource specs. Which pod is evicted **first**, and what QoS classes do these specs produce?\n\n```yaml\n# Pod A\nresources:\n  requests: { cpu: \"250m\", memory: \"256Mi\" }\n  limits:   { cpu: \"250m\", memory: \"256Mi\" }\n\n# Pod B\nresources:\n  requests: { cpu: \"250m\", memory: \"256Mi\" }\n  limits:   { cpu: \"500m\", memory: \"512Mi\" }\n\n# Pod C\n# (no resources block at all)\n```",
+      "explanation": "Kubernetes assigns each pod a **Quality of Service (QoS) class** based on its requests and limits, and uses that class to decide eviction order under node pressure:\n\n- **Pod A → `Guaranteed`**: every container sets `requests == limits` for *both* CPU and memory. These pods are the last to be evicted.\n- **Pod B → `Burstable`**: it sets requests, but limits differ from requests (or not all resources are constrained). Evicted after `BestEffort` but before `Guaranteed`.\n- **Pod C → `BestEffort`**: no requests or limits at all. These are the **first evicted** under resource pressure.\n\nSo **Pod C is evicted first.** Under memory pressure the kubelet ranks candidates by QoS class (`BestEffort` → `Burstable` → `Guaranteed`) and, within a class, by how much a pod exceeds its memory request. `BestEffort` pods have no memory request, so they're the top eviction candidates.\n\nPractical guidance: set requests and limits deliberately. `Guaranteed` pods get the strongest protection and predictable performance; `BestEffort` pods are cheap to schedule but the first sacrificed. For critical workloads, set `requests == limits` to land in `Guaranteed`. Note also that exceeding a *memory limit* gets a container OOM-killed regardless of QoS — QoS governs *eviction under node pressure*, which is a separate mechanism.",
+      "answers": [
+        {
+          "answer": "Pod C is evicted first. Pod A is `Guaranteed` (requests == limits for CPU and memory), Pod B is `Burstable` (requests set, limits differ), and Pod C is `BestEffort` (no requests/limits) — evicted first under node memory pressure.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Pod A is evicted first because its tight `limits` leave no headroom; Pods B and C are `Burstable` and can grow, so the scheduler protects them.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Pod B is evicted first because a mismatch between requests and limits makes it `BestEffort`; A and C are both `Guaranteed`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Eviction order is random across all three — Kubernetes does not use resource specs to prioritize evictions, only pod age.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A Node.js container built from this Dockerfile always takes the full grace period to stop (10s for `docker stop`, 30s in Kubernetes) and is then force-killed. The app's `process.on(\"SIGTERM\")` handler never runs. Why?\n\n```dockerfile\nFROM node:22-alpine\nWORKDIR /app\nCOPY . .\nRUN npm ci && npm run build\nCMD npm start\n```",
+      "explanation": "`CMD npm start` is the **shell form**, so Docker runs it as `/bin/sh -c \"npm start\"`. That makes **`sh` PID 1**, with `npm` as its child and `node` as a grandchild.\n\nWhen the container is stopped, SIGTERM is delivered **only to PID 1**. `sh` doesn't forward signals to its children (and `npm` historically hasn't reliably either). Your Node process never sees SIGTERM. After the timeout, everything is SIGKILLed: no graceful shutdown, and in-flight requests are dropped.\n\nThere's a second subtlety: the Linux kernel gives **PID 1** no default signal handlers. Even `node` running as PID 1 ignores SIGTERM unless it registers a handler.\n\nFixes:\n- Use the **exec form** so `node` itself is PID 1 and receives signals directly:\n  ```dockerfile\n  CMD [\"node\", \"dist/server.js\"]\n  ```\n- Optionally add a minimal init (`docker run --init`, or `tini` as the `ENTRYPOINT`). It forwards signals and reaps zombie processes.",
+      "answers": [
+        {
+          "answer": "The shell-form `CMD` makes `/bin/sh` PID 1, and it doesn't forward SIGTERM to `npm`/`node`. Use the exec form `CMD [\"node\", \"dist/server.js\"]` (optionally with `--init`/tini) so Node receives the signal.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Alpine images don't support POSIX signals. Switch to a Debian-based `node` image.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`docker stop` sends SIGKILL by default. Add `STOPSIGNAL SIGTERM` to the Dockerfile to fix it.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`npm ci` installs dev dependencies that intercept signals. Use `npm ci --omit=dev`.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A team runs six HTTP microservices on Kubernetes, each exposed with `type: LoadBalancer`. That creates six cloud load balancers, six public IPs, and six TLS certificates to manage. They want a single entry point that routes `api.example.com/orders` and `api.example.com/users` (and others) to the right service, with TLS terminated in one place. What's the idiomatic approach?",
+      "explanation": "An **Ingress** (or its successor, the **Gateway API**) defines **L7 HTTP(S) routing rules**: host- and path-based routing to backend Services, plus TLS termination. An **Ingress controller** implements those rules (ingress-nginx, Traefik, HAProxy, or a cloud controller like AWS ALB). The controller itself is usually exposed through a *single* `LoadBalancer` Service.\n\n```yaml\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: api\nspec:\n  tls:\n    - hosts: [api.example.com]\n      secretName: api-tls\n  rules:\n    - host: api.example.com\n      http:\n        paths:\n          - path: /orders\n            pathType: Prefix\n            backend: { service: { name: orders, port: { number: 80 } } }\n          - path: /users\n            pathType: Prefix\n            backend: { service: { name: users, port: { number: 80 } } }\n```\n\nThe backend services become `ClusterIP` (internal only).\n\nNote that an Ingress resource does nothing without a controller installed. **NodePort** exposes a high port on every node with no HTTP routing. **Headless** services (`clusterIP: None`) only change DNS to return pod IPs. **ExternalName** maps a service to an external DNS name.",
+      "answers": [
+        {
+          "answer": "Change the services to `ClusterIP` and define an Ingress (or Gateway API `HTTPRoute`) with host/path rules and TLS, served by an Ingress controller behind a single load balancer.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Change all six services to `NodePort` and point DNS at any node. NodePort performs path-based routing automatically.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Make the services headless (`clusterIP: None`), so Kubernetes DNS load-balances HTTP paths across them.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Use `type: ExternalName` services, which merge multiple services behind one external IP.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A teammate argues that storing a database password in a Kubernetes `Secret` (instead of a `ConfigMap`) means it's encrypted and safe. What's accurate about default Kubernetes Secrets?",
+      "explanation": "By default, Secret values are only **base64-encoded**. That's an encoding, not encryption, and anyone who can read the object can decode it instantly (`kubectl get secret db -o jsonpath='{.data.password}' | base64 -d`).\n\nWithout extra configuration, Secrets are also stored **unencrypted in etcd**. Anyone with etcd access, or etcd backups, can read them.\n\nWhat Secrets *do* provide over ConfigMaps: a distinct resource type you can lock down separately with RBAC, the option of encryption at rest, and handling that keeps them out of some logs and descriptions. Secrets mounted as volumes are kept in tmpfs (memory) on nodes.\n\nHardening steps:\n- Enable **encryption at rest** for Secrets (an `EncryptionConfiguration` with a **KMS provider**). Managed clusters often offer this as a setting.\n- Apply **least-privilege RBAC**. `get`/`list`/`watch` on Secrets in a namespace effectively grants all of them, and so does the ability to create pods in that namespace.\n- Consider an external secret manager (Vault, AWS Secrets Manager, GCP Secret Manager) via External Secrets Operator or the CSI Secrets Store driver.\n- Don't commit Secret manifests to Git unless they're encrypted (SOPS, Sealed Secrets).",
+      "answers": [
+        {
+          "answer": "They're only base64-encoded and, by default, stored unencrypted in etcd. Protect them by enabling encryption at rest (ideally with KMS), tight RBAC, and optionally an external secret manager.",
+          "isCorrect": true
+        },
+        {
+          "answer": "They're encrypted with AES-256 by default using a key unique to each namespace, so they're safe to commit to Git.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Base64 encoding is a one-way hash, so even cluster admins can't recover the original value.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Secrets and ConfigMaps are stored identically, so there's no reason to prefer Secrets for sensitive data.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A HorizontalPodAutoscaler targets 70% CPU utilization, but `kubectl get hpa` shows `TARGETS: <unknown>/70%` and the deployment never scales, even under heavy load. metrics-server is installed and `kubectl top pods` works. What's the most likely cause?\n\n```yaml\ncontainers:\n  - name: api\n    image: myorg/api:1.4.2\n    # no resources block\n```",
+      "explanation": "For `Utilization` targets, the HPA computes **current usage as a percentage of the container's resource *requests***:\n\n```\nutilization = current CPU usage / requested CPU\n```\n\nWith **no CPU request defined**, there's nothing to divide by. The HPA can't calculate utilization, reports `<unknown>`, and won't scale. `kubectl describe hpa` typically shows an event like *\"missing request for cpu\"*.\n\nFix: set CPU requests on every container in the pod (including sidecars):\n\n```yaml\nresources:\n  requests:\n    cpu: 250m\n    memory: 256Mi\n  limits:\n    memory: 512Mi\n```\n\nOther causes of `<unknown>` include metrics-server being missing or unhealthy (ruled out here, since `kubectl top` works) and pods that haven't reported metrics yet just after startup.\n\nRequests also matter well beyond the HPA: the scheduler uses them for pod placement, and they determine the pod's QoS class.",
+      "answers": [
+        {
+          "answer": "The containers don't define CPU `resources.requests`. Utilization-based HPA computes usage as a percentage of the request, so with no request it can't compute a value.",
+          "isCorrect": true
+        },
+        {
+          "answer": "HPA only works with `kind: StatefulSet`, not Deployments.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The target must be expressed in millicores (`700m`) rather than a percentage. Percentages only work for memory.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The HPA needs `minReplicas` to be at least 3 before it starts reporting metrics.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A Deployment with 4 replicas uses this update strategy. A new version is rolled out, but its image has a bug that makes its readiness probe fail forever. What happens?\n\n```yaml\nspec:\n  replicas: 4\n  strategy:\n    type: RollingUpdate\n    rollingUpdate:\n      maxSurge: 1\n      maxUnavailable: 0\n```",
+      "explanation": "`maxUnavailable: 0` means the rollout may never take the number of **available (Ready)** pods below the desired 4. `maxSurge: 1` allows at most **one extra** pod above 4 during the rollout.\n\nThe controller therefore:\n1. Creates **one** new-version pod (5 pods total).\n2. Waits for it to become **Ready** before terminating an old pod.\n\nBecause the new pod never passes its readiness probe, step 2 never happens. The **rollout stalls**: 4 old pods keep serving all traffic, and the one broken new pod receives none, since unready pods are removed from Service endpoints.\n\nAfter `progressDeadlineSeconds` (600s by default), the Deployment's `Progressing` condition becomes `False` with reason `ProgressDeadlineExceeded`. Kubernetes **doesn't roll back automatically**, but CI/CD tooling can detect the failure (`kubectl rollout status` exits non-zero), and you can run `kubectl rollout undo`.\n\nThis combination is a safe, zero-downtime strategy, at the cost of temporarily needing capacity for one extra pod.",
+      "answers": [
+        {
+          "answer": "One new pod is created (5 total) and never becomes Ready, so no old pods are terminated. The rollout stalls with all 4 old pods still serving traffic until `progressDeadlineSeconds` marks it failed; Kubernetes doesn't roll back automatically.",
+          "isCorrect": true
+        },
+        {
+          "answer": "All 4 old pods are replaced immediately, because `maxUnavailable: 0` disables availability checks during rollouts.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Kubernetes automatically rolls back to the previous ReplicaSet as soon as the first new pod fails its readiness probe.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The new pod is restarted in a loop by the readiness probe, and traffic alternates between old and new pods.",
+          "isCorrect": false
+        }
+      ]
+    }
+  ]
+}

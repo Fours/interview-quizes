@@ -1,0 +1,226 @@
+{
+  "id": "typescript",
+  "name": "TypeScript",
+  "questions": [
+    {
+      "question": "What does the following TypeScript conditional type evaluate to?\n\n```typescript\ntype Unpack<T> = T extends (...args: any[]) => infer R ? R : never;\ntype Result = Unpack<() => Promise<string>>;\n```",
+      "explanation": "The `infer` keyword inside a conditional type's `extends` clause lets TypeScript capture and name a type that it infers at evaluation time. Here, `infer R` captures whatever the function returns. Because `() => Promise<string>` returns `Promise<string>`, TypeScript binds `R = Promise<string>` and the whole type resolves to `Promise<string>`.\n\nIt does **not** unwrap the Promise — that would require composing with `Awaited<T>`. The `never` branch is only reached when `T` is not a function type at all. This pattern is exactly how TypeScript's built-in `ReturnType<T>` utility is implemented in `lib.es5.d.ts`.",
+      "answers": [
+        {
+          "answer": "`Promise<string>`",
+          "isCorrect": true
+        },
+        {
+          "answer": "`string`",
+          "isCorrect": false
+        },
+        {
+          "answer": "`never`",
+          "isCorrect": false
+        },
+        {
+          "answer": "`any`",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What does the `-readonly` modifier do in the following TypeScript mapped type, and what is the equivalent built-in utility type?\n\n```typescript\ntype User = {\n  readonly id: number;\n  readonly name: string;\n  readonly email: string;\n};\n\ntype Mutable<T> = {\n  -readonly [K in keyof T]: T[K];\n};\n\ntype MutableUser = Mutable<User>;\n```",
+      "explanation": "In TypeScript mapped types, the `+` and `-` prefixes are **modifier operators** that add or remove property modifiers. `-readonly` removes the `readonly` modifier from every property, producing a fully mutable version of the type. The resulting `MutableUser` is equivalent to writing `{ id: number; name: string; email: string; }` by hand.\n\nSimilarly, `-?` removes the optional (`?`) marker — this is exactly how TypeScript's built-in `Required<T>` utility is implemented in `lib.es5.d.ts`:\n```typescript\ntype Required<T> = { -readonly [K in keyof T]-?: T[K]; };\n```\n\nThe `+` prefix is optional: `+readonly` and `readonly` are identical. TypeScript's built-in `Readonly<T>` adds the modifier, and `Partial<T>` adds `?`. There is no built-in `Mutable<T>` — it's a common custom utility you'll often see in codebases that need to temporarily work with immutable types.",
+      "answers": [
+        {
+          "answer": "It removes the `readonly` modifier from each property, making them all writable. There is no built-in equivalent — `Mutable<T>` is a common custom utility.",
+          "isCorrect": true
+        },
+        {
+          "answer": "It makes every property both `readonly` and optional. The built-in equivalent is `Partial<Readonly<T>>`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "It is a syntax error — TypeScript mapped types do not support modifier removal; you must retype each property manually.",
+          "isCorrect": false
+        },
+        {
+          "answer": "It marks every property as deprecated. The `-` prefix is an alias for the `@deprecated` JSDoc annotation in mapped types.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "The following TypeScript function uses an exhaustiveness check. A new `\"triangle\"` variant is added to the `Shape` union but `area` is not updated. What happens, and what is the role of the `never` type here?\n\n```typescript\ntype Shape =\n  | { kind: \"circle\"; radius: number }\n  | { kind: \"square\"; side: number };\n\nfunction area(shape: Shape): number {\n  switch (shape.kind) {\n    case \"circle\": return Math.PI * shape.radius ** 2;\n    case \"square\": return shape.side ** 2;\n    default: {\n      const _exhaustive: never = shape;\n      return _exhaustive;\n    }\n  }\n}\n```",
+      "explanation": "This is the **exhaustiveness checking** pattern built on the fact that `never` is the empty type — no value is assignable to `never` except a value of type `never` itself.\n\nInside the `default` branch, TypeScript has narrowed `shape` by eliminating every handled `kind`. As long as all variants are handled, the narrowed type is `never`, and `const _exhaustive: never = shape` type-checks.\n\nThe moment you add `{ kind: \"triangle\"; base: number; height: number }` to `Shape` without adding a `case`, the `default` branch narrows `shape` to that triangle member instead of `never`. Assigning it to a `never`-typed variable produces a **compile-time error**: `Type '{ kind: \"triangle\"; ... }' is not assignable to type 'never'`. This turns a forgotten case into a build failure rather than a silent runtime bug.\n\nNote this is a *compile-time* guarantee only — it requires strict type checking and provides no protection if `shape` arrives as untyped data at runtime (e.g., from JSON). For that you still need runtime validation.",
+      "answers": [
+        {
+          "answer": "TypeScript raises a compile-time error at the `never` assignment because the un-handled `triangle` variant is no longer narrowable to `never`, catching the missing case at build time.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Nothing changes at compile time; the `default` branch silently returns `undefined` at runtime for triangles.",
+          "isCorrect": false
+        },
+        {
+          "answer": "TypeScript throws a runtime `TypeError` whenever a triangle is passed, because `never` values cannot be constructed.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The code fails to compile immediately even before adding `triangle`, because assigning any value to `never` is always illegal.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What does `A` resolve to in the following code, and why?\n\n```typescript\ntype ToArray<T> = T extends unknown ? T[] : never;\ntype A = ToArray<string | number>;\n```",
+      "explanation": "When a conditional type checks a **naked type parameter** (`T extends ...` where `T` is not wrapped in anything), TypeScript makes it **distributive**: if `T` is instantiated with a union, the conditional is applied to each member separately and the results are unioned back together.\n\nSo `ToArray<string | number>` becomes `ToArray<string> | ToArray<number>`, which is `string[] | number[]` — an array that is *either* all strings *or* all numbers.\n\nIf you want the non-distributive behavior (`(string | number)[]`, a mixed array), wrap both sides of the check in a tuple so `T` is no longer naked:\n\n```typescript\ntype ToArrayND<T> = [T] extends [unknown] ? T[] : never;\ntype B = ToArrayND<string | number>; // (string | number)[]\n```\n\nDistribution is what makes built-ins like `Exclude<T, U>` and `NonNullable<T>` work.",
+      "answers": [
+        {
+          "answer": "`string[] | number[]` — conditional types distribute over unions when the checked type is a naked type parameter, so each member is mapped separately.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`(string | number)[]` — the union is treated as a single type and wrapped in one array.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`never` — a union cannot extend `unknown` as a whole, so the false branch is taken.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`unknown[]` — the conditional widens the union to its common supertype before applying `T[]`.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "Given the code below, which of the two marked lines produce a compile-time error?\n\n```typescript\ntype Config = Record<string, string | number>;\n\nconst a: Config = { port: 3000, host: \"localhost\" };\nconst b = { port: 3000, host: \"localhost\" } satisfies Config;\n\na.port.toFixed(0); // Line 1\nb.port.toFixed(0); // Line 2\n```",
+      "explanation": "A **type annotation** (`const a: Config`) *replaces* the inferred type of the expression with the annotated type. After the annotation, TypeScript only knows that `a.port` is `string | number`, and `toFixed` does not exist on `string`, so **Line 1 errors**.\n\nThe **`satisfies`** operator (TypeScript 4.9+) *validates* that the expression is assignable to `Config` — you still get errors for typos or wrong value types — but it **keeps the more specific inferred type** of the expression. `b` is still typed as `{ port: number; host: string }`, so `b.port.toFixed(0)` compiles fine.\n\n`satisfies` is ideal for config objects, route tables, and lookup maps where you want both conformance checking and precise inference (including literal types when combined with `as const`).",
+      "answers": [
+        {
+          "answer": "Only Line 1. The annotation widens `a.port` to `string | number`, while `satisfies` checks conformance but preserves the inferred type, so `b.port` is still `number`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Only Line 2. `satisfies` widens the value to the target type, while the annotation keeps the narrow inferred type.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Both lines error, because both `a` and `b` are typed as `Record<string, string | number>`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Neither line errors; TypeScript narrows `a.port` to `number` from the object literal initializer despite the annotation.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What happens when the following code is compiled with `strict: true`?\n\n```typescript\nfunction getUserName(json: string) {\n  const data: unknown = JSON.parse(json);\n  return data.user.name;\n}\n```",
+      "explanation": "`unknown` is the **type-safe counterpart of `any`**. Any value can be assigned to an `unknown` variable, but you can't do *anything* with an `unknown` value — access properties, call it, or pass it where a specific type is expected — until you've **narrowed** it. So `data.user` produces error **TS18046: 'data' is of type 'unknown'**.\n\nEven though `JSON.parse` returns `any`, the explicit `: unknown` annotation wins: assigning `any` to an `unknown` variable is allowed, and from then on the variable is `unknown`.\n\nWays to narrow:\n- `typeof`/`in`/`instanceof` checks\n- A user-defined type guard (`function isUser(x: unknown): x is User`)\n- A runtime schema validator like Zod (`UserSchema.parse(data)`), which is the most robust option for untrusted input such as API payloads\n\nThis is why many teams prefer `unknown` for anything crossing a trust boundary.",
+      "answers": [
+        {
+          "answer": "It fails to compile: values of type `unknown` can't have properties accessed until they are narrowed (e.g. with a type guard or a schema validator like Zod).",
+          "isCorrect": true
+        },
+        {
+          "answer": "It compiles and the function's return type is inferred as `any`, because `JSON.parse` returns `any` and that overrides the annotation.",
+          "isCorrect": false
+        },
+        {
+          "answer": "It compiles, but throws at runtime if `user` is missing, since `unknown` only affects runtime checks.",
+          "isCorrect": false
+        },
+        {
+          "answer": "It compiles, because `strict` mode treats `unknown` the same as `{}` and allows property access with optional chaining inserted automatically.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "Which of the marked assignments produce a compile-time error?\n\n```typescript\ninterface Point { x: number; y: number }\n\nconst p1: Point = { x: 1, y: 2, z: 3 };   // A\n\nconst tmp = { x: 1, y: 2, z: 3 };\nconst p2: Point = tmp;                    // B\n```",
+      "explanation": "TypeScript is **structurally typed**: a value is assignable to `Point` if it has *at least* the required properties with compatible types. Extra properties are normally fine, which is why **B compiles** — `tmp` has `x` and `y`, and `z` is simply ignored by the `Point` type.\n\nHowever, TypeScript applies an extra rule called **excess property checking** to *fresh object literals* — object literals written directly at the point of assignment or as a function argument. Because an extra property on a literal is almost always a typo (e.g. `colour` instead of `color`), **A errors**: *\"Object literal may only specify known properties, and 'z' does not exist in type 'Point'.\"*\n\nOnce the literal is stored in a variable it loses its \"freshness\", and only the normal structural compatibility check applies. This is a common source of confusion when refactoring inline literals into variables.",
+      "answers": [
+        {
+          "answer": "Only A. Excess property checks apply only to \"fresh\" object literals; once the literal is assigned to a variable first, normal structural typing allows the extra `z`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Both A and B, because `Point` is an interface and interfaces are closed — no extra properties are ever allowed.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Only B, because `tmp` is inferred as `{ x: number; y: number; z: number }` which is a different nominal type than `Point`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Neither — TypeScript's structural typing always ignores extra properties.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What is the resulting type `H`?\n\n```typescript\ntype Handlers<T extends string> = {\n  [K in T as `on${Capitalize<K>}`]: () => void;\n};\n\ntype H = Handlers<\"click\" | \"focus\">;\n```",
+      "explanation": "This combines two TypeScript 4.1+ features:\n\n1. **Template literal types** — `` `on${Capitalize<K>}` `` builds a new string literal type from `K`. `Capitalize` is one of the intrinsic string manipulation types (along with `Uppercase`, `Lowercase`, `Uncapitalize`).\n2. **Key remapping in mapped types** — the `as` clause lets a mapped type rename each key as it iterates.\n\nIterating `K` over `\"click\" | \"focus\"` produces the keys `\"onClick\"` and `\"onFocus\"`, so:\n\n```typescript\ntype H = { onClick: () => void; onFocus: () => void };\n```\n\nThe `as` clause can also *filter* keys: if it resolves to `never`, the key is dropped (e.g. `` as K extends `_${string}` ? never : K `` to strip \"private\" underscore keys).",
+      "answers": [
+        {
+          "answer": "`{ onClick: () => void; onFocus: () => void }`",
+          "isCorrect": true
+        },
+        {
+          "answer": "`{ click: () => void; focus: () => void }` — the `as` clause only affects the value type, not the key.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`{ onclick: () => void; onfocus: () => void }` — template literal types can't change letter case.",
+          "isCorrect": false
+        },
+        {
+          "answer": "A compile error — `as` is not allowed inside a mapped type's key clause.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What happens when TypeScript compiles the following declarations in the same module?\n\n```typescript\ninterface User { id: string }\ninterface User { email: string }\n\ntype Account = { id: string };\ntype Account = { email: string };\n```",
+      "explanation": "**Interfaces are open** and support **declaration merging**: multiple `interface` declarations with the same name in the same scope are merged into a single type. Here `User` becomes `{ id: string; email: string }`.\n\n**Type aliases are closed**: a `type` name can only be declared once, so the second `type Account` is an error — *\"Duplicate identifier 'Account'.\"*\n\nDeclaration merging is what powers **module augmentation**, e.g. adding a `user` property to Express's `Request`:\n\n```typescript\ndeclare global {\n  namespace Express {\n    interface Request { user?: AuthUser }\n  }\n}\n```\n\nIt's also a reason some teams prefer `type` for application code: it prevents accidental merging with a same-named interface from elsewhere in the program.",
+      "answers": [
+        {
+          "answer": "The two `User` interfaces merge into `{ id: string; email: string }`, but the second `type Account` is a \"Duplicate identifier\" error — type aliases can't be merged.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Both compile: `User` and `Account` each become `{ id: string; email: string }`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Both are errors, because no TypeScript declaration may share a name with another in the same scope.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Both compile, but the later declaration wins, so `User` is `{ email: string }` and `Account` is `{ email: string }`.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What is the type `Role` in the following code, and what would it be **without** `as const`?\n\n```typescript\nconst ROLES = [\"admin\", \"editor\", \"viewer\"] as const;\ntype Role = (typeof ROLES)[number];\n```",
+      "explanation": "A **const assertion** (`as const`) tells TypeScript to infer the narrowest possible type for a literal:\n- string/number literals keep their literal types (`\"admin\"` instead of `string`)\n- arrays become `readonly` tuples\n- object properties become `readonly`\n\nSo `ROLES` is `readonly [\"admin\", \"editor\", \"viewer\"]`. Indexing a tuple type with `number` yields the union of its element types: `Role = \"admin\" | \"editor\" | \"viewer\"`.\n\nWithout `as const`, `ROLES` is inferred as a mutable `string[]` (since the array could later have any string pushed into it), and `Role` would just be `string`.\n\nThis pattern gives you a single source of truth: a runtime array you can iterate over (e.g. to render a dropdown or validate input) *and* a derived union type, with no duplication.",
+      "answers": [
+        {
+          "answer": "`\"admin\" | \"editor\" | \"viewer\"`. Without `as const` the array is inferred as `string[]`, so `Role` would be just `string`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`readonly string[]` in both cases — `as const` only affects mutability, not element types.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`\"admin\"` — indexing with `number` returns only the first element's type.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`\"admin\" | \"editor\" | \"viewer\"` in both cases, because TypeScript always infers literal types for `const` declarations.",
+          "isCorrect": false
+        }
+      ]
+    }
+  ]
+}

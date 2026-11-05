@@ -1,0 +1,38 @@
+[
+  {
+    "id": "typescript",
+    "name": "TypeScript"
+  },
+  {
+    "id": "javascript",
+    "name": "JavaScript"
+  },
+  {
+    "id": "nodejs",
+    "name": "Node.js"
+  },
+  {
+    "id": "react",
+    "name": "React"
+  },
+  {
+    "id": "security",
+    "name": "Security"
+  },
+  {
+    "id": "databases",
+    "name": "Databases: SQL & NoSQL"
+  },
+  {
+    "id": "docker-kubernetes",
+    "name": "Docker & Kubernetes"
+  },
+  {
+    "id": "oop-functional",
+    "name": "OOP & Functional Programming"
+  },
+  {
+    "id": "system-design",
+    "name": "System Design & Architecture"
+  }
+]

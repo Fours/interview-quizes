@@ -1,0 +1,226 @@
+{
+  "id": "databases",
+  "name": "Databases: SQL & NoSQL",
+  "questions": [
+    {
+      "question": "Given the query below, what rank values does `RANK()` assign when two employees in the same department share the highest salary? How does this differ from `DENSE_RANK()`?\n\n```sql\nSELECT\n  name,\n  department,\n  salary,\n  RANK()       OVER (PARTITION BY department ORDER BY salary DESC) AS rnk,\n  DENSE_RANK() OVER (PARTITION BY department ORDER BY salary DESC) AS dense_rnk\nFROM employees;\n```",
+      "explanation": "**`RANK()`** assigns the same rank to tied rows, then **skips** subsequent ranks by the number of ties. Two employees tied for first both receive rank `1`, and the next distinct salary receives rank `3` — rank `2` is skipped. Think of it like an Olympic podium: two gold medalists, no silver, then bronze.\n\n**`DENSE_RANK()`** also assigns the same rank to tied rows but **never skips** ranks. The same two tied employees get rank `1`, and the next employee gets rank `2` regardless of the tie count.\n\nPractical guidance:\n- Use `RANK()` when you need to know \"how many rows rank above this one\" (including peers) — useful for leaderboards where gaps convey meaning.\n- Use `DENSE_RANK()` when you want a compact, gap-free ranking — e.g., \"return the top 3 distinct salary levels per department.\"\n- `ROW_NUMBER()` assigns a unique sequential integer to every row and breaks ties arbitrarily — use it when you need exactly one result per position.",
+      "answers": [
+        {
+          "answer": "`RANK()` gives both tied employees rank `1` and skips rank `2`, so the next employee gets rank `3`. `DENSE_RANK()` gives rank `1` then `2` with no gap.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`RANK()` assigns consecutive ranks with no gaps — it is identical to `DENSE_RANK()`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`RANK()` arbitrarily assigns rank `1` to one tied employee and rank `2` to the other to ensure uniqueness.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`RANK()` returns `NULL` for tied rows and requires an explicit tie-breaker column in `ORDER BY`.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "In MongoDB, you are modeling a blog platform. Each post has comments; comments are **always** fetched together with their parent post, and no post will ever exceed a few hundred comments. Which data modeling strategy is correct, and why would the reference pattern cause problems here?",
+      "explanation": "**Embed comments as an array inside the post document.** MongoDB's document model is optimized around one principle: *data that is accessed together should be stored together*. When comments are always read with their post and the count is bounded, a single `db.posts.findOne({ _id })` retrieves the complete post-with-comments — no join, no second round-trip, and the result fits comfortably within MongoDB's 16 MB document limit.\n\nThe **reference pattern** (comments in a separate collection linked by `post_id`) adds unnecessary complexity in this scenario: you must use a `$lookup` aggregation stage (MongoDB's join) or issue two queries in the application, both of which hurt read performance without any benefit when comments are always co-read with the post.\n\nThe reference pattern is the right choice when:\n- Comment counts are unbounded (risk of hitting the 16 MB document limit).\n- Comments must be queried independently, paginated at scale, or shared across parents.\n- Concurrent writes to a single post document create lock contention.\n\nA common mistake is applying relational normalization instincts to MongoDB. The correct rule is to **model for your access patterns**, not for normalization.",
+      "answers": [
+        {
+          "answer": "Embed comments as an array within the post document — data accessed together should be stored together, and bounded size makes a single-document read safe and efficient.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Store comments in a separate collection with a `post_id` reference — normalization prevents data duplication and is always preferred.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Store arrays of comment `_id` references inside the post document, then batch-fetch comments in a second query.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Duplicate comments in both the post document and a standalone collection to optimize both read paths simultaneously.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A distributed NoSQL database is described as **AP** (Available and Partition-tolerant). According to the CAP theorem, what consistency guarantee does it sacrifice, and what does \"eventual consistency\" mean in practice for an application reading user profile data?",
+      "explanation": "The **CAP theorem** (Brewer's theorem) states that a distributed system can guarantee at most two of three properties simultaneously:\n- **C**onsistency: every read returns the most recent write (or an error)\n- **A**vailability: every request receives a (non-error) response, even if it may be stale\n- **P**artition tolerance: the system keeps operating when network partitions split nodes\n\nSince real distributed systems cannot eliminate network partitions, the practical trade-off is between **CP** (consistent under partition, may return errors) and **AP** (available under partition, may return stale data).\n\n**AP databases** (Cassandra, DynamoDB, CouchDB) prioritize staying responsive over returning the most recent value. During a network partition, different replicas may accept writes independently and diverge. After the partition heals, the nodes reconcile via anti-entropy processes and converge on the same value. This is **eventual consistency** — a read may return a stale profile picture for a few seconds after an update, but all replicas will eventually agree.\n\nFor user profile reads this is usually acceptable. For inventory deductions or bank balances where two stale reads can both permit an operation that should be rejected, AP systems require application-level conflict resolution (e.g., last-write-wins, CRDTs, or read-your-own-writes routing).",
+      "answers": [
+        {
+          "answer": "It sacrifices strong consistency. Reads may return stale data during a partition. 'Eventual consistency' means all replicas will converge to the same value after the partition heals, but there is no guarantee of seeing the latest write immediately.",
+          "isCorrect": true
+        },
+        {
+          "answer": "It sacrifices partition tolerance — AP databases are only deployed in single-datacenter environments where network splits cannot occur.",
+          "isCorrect": false
+        },
+        {
+          "answer": "It sacrifices availability — AP systems return errors on reads during a partition to avoid serving stale data.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The CAP theorem only applies to SQL databases; NoSQL databases like Cassandra operate outside its constraints by using gossip protocols.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "Two concurrent database transactions both execute the following logic against a `READ COMMITTED` isolation level. The initial account balance is $1,000.\n\n```sql\n-- Transaction A and Transaction B run simultaneously:\n\n-- Step 1: both check the balance\nSELECT balance FROM accounts WHERE id = 42;  -- both see $1,000\n\n-- Step 2: both confirm $1,000 >= $800, then debit\nUPDATE accounts SET balance = balance - 800 WHERE id = 42;\nCOMMIT;\n```\n\nWhat problem occurs, and what is the standard SQL fix?",
+      "explanation": "This is the **check-then-act race condition** (a form of write skew). Both transactions read the same balance ($1,000) before either commits. Both pass the \"sufficient funds\" check ($1,000 ≥ $800) and both execute the debit. The final balance is $1,000 − $800 − $800 = **−$600** — an overdraft that the check should have prevented.\n\n`READ COMMITTED` only prevents reading *uncommitted* dirty data — it does not prevent two transactions from both reading the same pre-update value before either writes.\n\n**Standard fixes:**\n\n1. **`SELECT ... FOR UPDATE`**: acquires a row-level exclusive lock at read time. Transaction B's `SELECT ... FOR UPDATE` blocks until A commits. B then re-reads $200 and can correctly abort.\n\n2. **Atomic conditional UPDATE**:\n```sql\nUPDATE accounts SET balance = balance - 800\nWHERE id = 42 AND balance >= 800;\n-- check rows affected: if 0, insufficient funds\n```\nThis collapses the check and update into a single atomic operation that the database serializes.\n\n3. **`SERIALIZABLE` isolation**: the database detects the read-write conflict and aborts one transaction automatically.",
+      "answers": [
+        {
+          "answer": "Both transactions read $1,000 before either commits, so both consider the debit valid and execute it — resulting in a -$600 balance. Fix: use `SELECT ... FOR UPDATE` to lock the row at read time, or use a single atomic conditional `UPDATE ... WHERE balance >= 800`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`READ COMMITTED` prevents this race — Transaction B blocks on the `UPDATE` until Transaction A commits, then re-reads the updated balance of $200 and automatically aborts.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The `UPDATE` uses `balance - 800` which is applied to the latest committed value, so the database correctly serializes both debits and the final balance is $200.",
+          "isCorrect": false
+        },
+        {
+          "answer": "This is a phantom read, which only occurs in `SELECT` queries with range conditions — point lookups like `WHERE id = 42` are immune.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "This query is slow on a 50-million-row `orders` table. `EXPLAIN ANALYZE` shows a **Seq Scan**. There is already a B-tree index on `(customer_id)`. Why isn't it used efficiently, and what index would make this query an index-only scan?\n\n```sql\nSELECT customer_id, status, total\nFROM orders\nWHERE customer_id = 12345 AND status = 'shipped';\n```",
+      "explanation": "Two things are happening.\n\nFirst, a single-column index on `(customer_id)` *can* be used to find rows for customer `12345`, but if that customer has many orders the planner must then fetch each matching heap row to check `status = 'shipped'` and to read `total`. When the estimated number of matching rows is large relative to the table, the planner may decide a **sequential scan** is cheaper than many random heap lookups — which is what `EXPLAIN` is showing.\n\nThe fix is a **composite index** that matches both the filter and the returned columns:\n\n```sql\nCREATE INDEX idx_orders_cust_status_total\nON orders (customer_id, status) INCLUDE (total);\n```\n\n- `(customer_id, status)` lets the index seek directly to rows matching *both* predicates — column order matters: the equality columns come first.\n- The `INCLUDE (total)` clause stores `total` in the index leaf pages (a **covering index**). Now every column the query needs — `customer_id`, `status`, `total` — is available from the index alone.\n\nBecause all needed columns live in the index, PostgreSQL can perform an **index-only scan**, skipping heap access entirely (given the visibility map is up to date via `VACUUM`). This turns a 50-million-row seq scan into a narrow index seek.\n\nRule of thumb for composite indexes: **equality columns first, then range columns, then included/covering columns.**",
+      "answers": [
+        {
+          "answer": "The single-column index doesn't cover `status` or `total`, so matching many rows leads the planner to a seq scan. A composite covering index `(customer_id, status) INCLUDE (total)` enables an index-only scan with no heap access.",
+          "isCorrect": true
+        },
+        {
+          "answer": "PostgreSQL never uses B-tree indexes for `AND` conditions on two columns; you must create a separate index on `status` and let the planner do a bitmap `AND`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The index is unused because `customer_id` is an integer; indexes only accelerate string columns, so casting `customer_id` to text would fix it.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Sequential scans are always faster than index scans on large tables, so the query is already optimal and no index change will help.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "An endpoint that lists 50 blog posts with their authors is slow. The ORM code is below. What's the problem, and what's the standard fix?\n\n```typescript\nconst posts = await Post.findAll({ limit: 50 });\n\nfor (const post of posts) {\n  post.author = await User.findByPk(post.authorId);\n}\n```",
+      "explanation": "This is the **N+1 query problem**: 1 query fetches the posts, then **N** more queries (one per post) fetch the authors. That's 51 sequential database round trips. Network latency dominates, and the cost grows linearly with page size.\n\nStandard fixes:\n- **Eager loading / JOIN.** Let the ORM fetch posts and authors together (`Post.findAll({ include: User })`, Prisma `include`, or a SQL `JOIN`).\n- **Batching.** Collect the IDs and run one `WHERE id IN (...)` / `= ANY($1)` query, then stitch the results in memory.\n- In GraphQL resolvers, **DataLoader** batches and deduplicates the per-field lookups within a single tick.\n\nEither way the endpoint makes 1–2 queries instead of N+1. N+1 problems often hide behind lazy-loaded ORM relations, so query logging or APM tracing in development is the best way to spot them.",
+      "answers": [
+        {
+          "answer": "It's an N+1 query problem: one query for the posts plus one per post for its author. Eager-load with a JOIN/`include`, or batch the lookups into one `WHERE id IN (...)` query (e.g. with DataLoader).",
+          "isCorrect": true
+        },
+        {
+          "answer": "`findByPk` bypasses the index on the primary key. Add an index on `users.id`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The loop is slow because `await` blocks the database connection pool. Remove `await` and the queries will run in parallel at no extra cost.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The `limit: 50` forces a full table scan. Use cursor-based pagination instead.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "The intent is to list **all** customers, along with any of their *shipped* orders (customers with no shipped orders should still appear, with `NULL` order IDs). Why does this query drop customers, and how do you fix it?\n\n```sql\nSELECT c.id, c.name, o.id AS order_id\nFROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id\nWHERE o.status = 'shipped';\n```",
+      "explanation": "A `LEFT JOIN` keeps every customer row. When there's no matching order, the `o.*` columns are filled with `NULL`. But `WHERE` is evaluated **after** the join, and `NULL = 'shipped'` evaluates to **UNKNOWN**, which `WHERE` treats as false.\n\nSo every customer without a shipped order is filtered out. The query **silently behaves like an `INNER JOIN`**.\n\nFix: put the condition on the right-hand table into the **`ON` clause**, so it restricts which orders are joined rather than which result rows survive:\n\n```sql\nSELECT c.id, c.name, o.id AS order_id\nFROM customers c\nLEFT JOIN orders o\n  ON o.customer_id = c.id AND o.status = 'shipped';\n```\n\nRule of thumb: in an outer join, filters on the *optional* side belong in `ON`. Filters on the *preserved* side can go in `WHERE`.",
+      "answers": [
+        {
+          "answer": "The `WHERE o.status = 'shipped'` filter discards the `NULL`-extended rows, turning the LEFT JOIN into an inner join. Move the condition into the `ON` clause.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`LEFT JOIN` should be `RIGHT JOIN`. The preserved table must be listed second.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The query is correct. Customers only drop out if `orders.customer_id` has no foreign key constraint.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Add `GROUP BY c.id`. Without it, the database deduplicates customers that have no orders.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "The `discontinued` table has 3 rows: `product_id` values `7`, `12`, and `NULL`. The `products` table has 1,000 rows with IDs 1–1000. How many rows does this query return?\n\n```sql\nSELECT name\nFROM products\nWHERE id NOT IN (SELECT product_id FROM discontinued);\n```",
+      "explanation": "SQL uses **three-valued logic** (TRUE, FALSE, UNKNOWN). `x NOT IN (a, b, c)` is equivalent to `x <> a AND x <> b AND x <> c`.\n\nFor product 5, that's `5 <> 7 AND 5 <> 12 AND 5 <> NULL`, which is `TRUE AND TRUE AND UNKNOWN`. That evaluates to **UNKNOWN**, and `WHERE` keeps only rows that are TRUE.\n\nBecause the subquery contains a `NULL`, **no row can ever satisfy `NOT IN`**, and the query returns **0 rows**. This bug often appears in production when a nullable column gets its first `NULL`.\n\nFixes:\n\n```sql\n-- Preferred: NOT EXISTS is NULL-safe and usually planned as an anti-join\nSELECT p.name FROM products p\nWHERE NOT EXISTS (\n  SELECT 1 FROM discontinued d WHERE d.product_id = p.id\n);\n\n-- Or filter the NULLs out\nWHERE id NOT IN (SELECT product_id FROM discontinued WHERE product_id IS NOT NULL)\n```",
+      "answers": [
+        {
+          "answer": "0 rows. Comparing any ID with the `NULL` yields UNKNOWN, so `NOT IN` is never TRUE. Use `NOT EXISTS`, or filter out `NULL`s in the subquery.",
+          "isCorrect": true
+        },
+        {
+          "answer": "998 rows. `NULL` values in a subquery are ignored by `NOT IN`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "997 rows. The `NULL` is treated as a match for one arbitrary product.",
+          "isCorrect": false
+        },
+        {
+          "answer": "1,000 rows. `NOT IN` short-circuits to TRUE as soon as it encounters a `NULL`.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "An IoT platform stores sensor readings in DynamoDB with **partition key = event date** (e.g. `2026-11-05`) and **sort key = timestamp**. Thousands of devices write continuously, and writes are being throttled even though the table's total provisioned capacity is far from exhausted. What's the cause, and what's a better key design?",
+      "explanation": "DynamoDB distributes data and throughput across physical partitions by hashing the **partition key**. Each partition has hard throughput limits (about 1,000 WCU and 3,000 RCU per second).\n\nWith the date as the partition key, **all writes for \"today\" go to the same key**, and so to a single partition. That's a **hot partition**: it hits its per-partition limit and throttles, while capacity on other partitions sits unused. Adaptive capacity can rebalance somewhat, but it can't split a single partition key's traffic beyond those limits.\n\nBetter designs spread writes across many keys:\n- **Use a high-cardinality key that matches the access pattern**, e.g. `PK = deviceId`, `SK = timestamp`. This is ideal when queries are \"readings for device X in time range Y\".\n- **Write sharding**: `PK = 2026-11-05#<0..N-1>` (random or hash-based suffix). Writes spread across N keys, and reads by date fan out to N queries and merge the results.\n\nIn NoSQL key-value and wide-column stores, keys are designed **from the access patterns**, with even distribution as a primary goal.",
+      "answers": [
+        {
+          "answer": "A hot partition: every write for the current day shares one partition key, so it hits the per-partition throughput limit. Use a high-cardinality key such as `deviceId`, or add a shard suffix to the date key (`date#N`) to spread writes.",
+          "isCorrect": true
+        },
+        {
+          "answer": "The sort key is the problem. DynamoDB hashes sort keys to choose partitions, and timestamps are sequential, so they collide.",
+          "isCorrect": false
+        },
+        {
+          "answer": "DynamoDB throttles any table with more than one write per second per item. Batch writes with `BatchWriteItem` to fix it.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Global secondary indexes are missing. Adding a GSI on `timestamp` multiplies the table's write capacity.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A MongoDB collection receives this query constantly:\n\n```javascript\ndb.orders\n  .find({ status: \"shipped\", total: { $gt: 100 } })\n  .sort({ createdAt: -1 });\n```\n\nWhich compound index best supports it?",
+      "explanation": "For compound indexes, MongoDB recommends the **ESR rule**: order fields by **E**quality, then **S**ort, then **R**ange.\n\n`{ status: 1, createdAt: -1, total: 1 }`:\n- **Equality** (`status`) first narrows the index to one contiguous section.\n- **Sort** (`createdAt`) next means entries within that section are *already in the requested order*, so MongoDB can walk the index and avoid an in-memory `SORT` stage (which is slow and has a memory limit).\n- **Range** (`total`) last is still checked against the index keys, filtering without fetching documents that don't match.\n\nPutting the range field before the sort field (`{ status, total, createdAt }`) means the results come out ordered by `total`. MongoDB then has to do a **blocking in-memory sort** on `createdAt`.\n\nSeparate single-field indexes rarely help, since index intersection is seldom chosen by the planner. Leading with `createdAt` makes the equality match far less selective.\n\nVerify the plan with `.explain(\"executionStats\")`: you want `IXSCAN` and no `SORT` stage.",
+      "answers": [
+        {
+          "answer": "`{ status: 1, createdAt: -1, total: 1 }`. Equality, then Sort, then Range (the ESR rule), so results come out of the index already sorted with no in-memory sort.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`{ status: 1, total: 1, createdAt: -1 }`. Filter fields should always come before sort fields.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`{ createdAt: -1, status: 1, total: 1 }`. The sort field must lead the index for MongoDB to use it for sorting.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Three single-field indexes on `status`, `total`, and `createdAt`. MongoDB intersects them, which is more flexible than a compound index.",
+          "isCorrect": false
+        }
+      ]
+    }
+  ]
+}

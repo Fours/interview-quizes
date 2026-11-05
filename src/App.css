@@ -541,3 +541,22 @@ body {
   background: #DC2626;
   box-shadow: 0 0 0 2px white, 0 0 0 3.5px #DC2626;
 }
+
+/* ── Loading / error states ──────────────── */
+
+.status-message {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  text-align: center;
+  font-size: 1.0625rem;
+  color: var(--text-secondary);
+}
+
+.status-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 20px;
+}

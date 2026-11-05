@@ -6,6 +6,8 @@ export type QuizAnswer = {
 export type StoredQuizProgress = {
   questionsAnswered: number
   correctAnswers: number
+  /** Number of questions in the quiz when progress was saved. Missing in progress saved by older versions. */
+  totalQuestions?: number
   answers: Record<number, QuizAnswer>
 }
 

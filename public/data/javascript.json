@@ -1,0 +1,226 @@
+{
+  "id": "javascript",
+  "name": "JavaScript",
+  "questions": [
+    {
+      "question": "What is the output of the following JavaScript code?\n\n```javascript\nfunction makeCounter(initial = 0) {\n  let count = initial;\n  return {\n    increment() { return ++count; },\n    decrement() { return --count; },\n    value()     { return count; },\n  };\n}\n\nconst a = makeCounter(10);\nconst b = makeCounter(10);\n\na.increment();\na.increment();\nb.decrement();\n\nconsole.log(a.value(), b.value());\n```",
+      "explanation": "Each call to `makeCounter` creates a new **execution context** with its own `count` variable. The three returned methods form a **closure** over that specific `count` — they hold a live reference to the variable in the scope where they were created, not a copy of its value.\n\n`a` and `b` are completely independent: each closes over a separate `count` initialized to `10`. Calling `a.increment()` twice raises `a`'s count to `12`. Calling `b.decrement()` once lowers `b`'s count to `9`. Neither operation affects the other.\n\nThis pattern — using closures to encapsulate mutable private state — is the **Module Pattern**, one of the foundational JavaScript design patterns predating ES6 classes and still commonly used in functional codebases.",
+      "answers": [
+        {
+          "answer": "`12 9`",
+          "isCorrect": true
+        },
+        {
+          "answer": "`12 11`",
+          "isCorrect": false
+        },
+        {
+          "answer": "`11 9`",
+          "isCorrect": false
+        },
+        {
+          "answer": "`12 12`",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What does the following JavaScript code log, and why?\n\n```javascript\nconst user = {\n  name: \"Ada\",\n  greetLater() {\n    setTimeout(function () {\n      console.log(\"Hi, \" + this.name);\n    }, 0);\n  },\n  greetLaterArrow() {\n    setTimeout(() => {\n      console.log(\"Hi, \" + this.name);\n    }, 0);\n  },\n};\n\nuser.greetLater();\nuser.greetLaterArrow();\n```",
+      "explanation": "The output is:\n```\nHi, undefined\nHi, Ada\n```\n\n**`greetLater`** passes a regular `function` to `setTimeout`. Regular functions get their `this` bound **at call time** based on *how* they are invoked. `setTimeout` invokes its callback as a plain function call with no receiver, so `this` is the global object (`window` in browsers, `global`/`timers` object in Node) in non-strict mode, or `undefined` in strict mode / ES modules. Either way `this.name` is not `\"Ada\"` — in a browser it logs `Hi, undefined`.\n\n**`greetLaterArrow`** uses an **arrow function**, which has no `this` of its own. It lexically captures `this` from the enclosing scope — the `greetLaterArrow` method, where `this` is `user`. So `this.name` is `\"Ada\"`.\n\nThis is the single most important practical difference between arrow functions and regular functions: arrow functions capture `this` lexically and cannot be re-bound with `call`/`apply`/`bind`. It's exactly why arrow functions became the default for callbacks, event handlers, and array-method iteratees that need to reference enclosing state.",
+      "answers": [
+        {
+          "answer": "`Hi, undefined` then `Hi, Ada` — the regular function's `this` is rebound by `setTimeout` (not `user`), while the arrow function lexically captures `this` from the enclosing method.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`Hi, Ada` then `Hi, Ada` — both callbacks retain `this` from the object they were defined on.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`Hi, Ada` then `Hi, undefined` — regular functions capture `this` lexically while arrow functions get a fresh global `this`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`Hi, undefined` then `Hi, undefined` — `setTimeout` always strips `this` for every callback type.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "In what order are the letters logged?\n\n```javascript\nasync function run() {\n  console.log(\"a1\");\n  await null;\n  console.log(\"a2\");\n}\n\nconsole.log(\"s\");\nrun();\nPromise.resolve().then(() => console.log(\"p\"));\nconsole.log(\"e\");\n```",
+      "explanation": "The body of an `async` function runs **synchronously** until it hits its first `await`. So the synchronous phase logs:\n\n1. `s`\n2. `a1` — `run()` starts executing immediately\n3. `e` — after `await null` suspends `run`, control returns to the caller, the `.then` callback is registered, and `e` is logged\n\n`await null` wraps `null` in a resolved promise and schedules the rest of `run` (the continuation) as a **microtask**. That happens *before* `Promise.resolve().then(...)` schedules its callback, so the microtask queue is `[continuation of run, p-callback]`.\n\nOnce the call stack empties, microtasks run in FIFO order: `a2`, then `p`.\n\nFinal output: `s a1 e a2 p`. Note that `await` always yields, even when awaiting a non-promise value.",
+      "answers": [
+        {
+          "answer": "`s a1 e a2 p`",
+          "isCorrect": true
+        },
+        {
+          "answer": "`s a1 a2 e p` — awaiting a non-promise value like `null` doesn't yield, so `run` finishes synchronously.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`s e a1 a2 p` — async functions are deferred entirely until the current script finishes.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`s a1 e p a2` — `.then` callbacks always run before `await` continuations.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What do these two loops log?\n\n```javascript\nfor (var i = 0; i < 3; i++) {\n  setTimeout(() => console.log(\"var:\", i), 0);\n}\n\nfor (let j = 0; j < 3; j++) {\n  setTimeout(() => console.log(\"let:\", j), 0);\n}\n```",
+      "explanation": "`var` is **function-scoped**: there is exactly one `i` binding shared by every iteration. The callbacks close over that single binding and only run after the loop finishes, when `i` is `3`. So the first loop logs `var: 3` three times.\n\n`let` in a `for` loop header is special: the spec creates a **fresh binding for each iteration** (copying the previous value into it before the increment). Each arrow function closes over its own `j`, so the second loop logs `let: 0`, `let: 1`, `let: 2`.\n\nBefore ES2015, the usual workaround was an IIFE (`(function (i) { ... })(i)`) to create a new scope per iteration.",
+      "answers": [
+        {
+          "answer": "`var: 3` three times, then `let: 0`, `let: 1`, `let: 2` — `var` has one shared binding, while `let` creates a new binding per iteration.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`var: 0, 1, 2` and `let: 0, 1, 2` — closures capture the value at the moment they are created.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`var: 3` three times and `let: 3` three times — `setTimeout` always runs after the loop, so both see the final value.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`var: 2` three times and `let: 0, 1, 2` — `var` keeps the last value that passed the loop condition.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What does this code log?\n\n```javascript\nconst arr = [NaN, 0];\n\nconsole.log(arr.indexOf(NaN));\nconsole.log(arr.includes(NaN));\nconsole.log(arr.includes(-0));\nconsole.log(Object.is(0, -0));\n```",
+      "explanation": "JavaScript has several equality algorithms:\n\n| Algorithm | Used by | `NaN` equals `NaN`? | `+0` equals `-0`? |\n|---|---|---|---|\n| Strict Equality (`===`) | `indexOf`, `lastIndexOf` | No | Yes |\n| SameValueZero | `includes`, `Map`/`Set` keys | Yes | Yes |\n| SameValue | `Object.is` | Yes | No |\n\n- `indexOf(NaN)` uses `===`, and `NaN !== NaN`, so it returns `-1`.\n- `includes(NaN)` uses SameValueZero, which treats `NaN` as equal to itself → `true`.\n- `includes(-0)` → SameValueZero treats `+0` and `-0` as equal → `true`.\n- `Object.is(0, -0)` uses SameValue, which distinguishes the signed zeros → `false`.\n\nThis is why `includes` is preferred over `indexOf(...) !== -1` for membership tests.",
+      "answers": [
+        {
+          "answer": "`-1`, `true`, `true`, `false`",
+          "isCorrect": true
+        },
+        {
+          "answer": "`0`, `true`, `true`, `true`",
+          "isCorrect": false
+        },
+        {
+          "answer": "`-1`, `false`, `true`, `false`",
+          "isCorrect": false
+        },
+        {
+          "answer": "`-1`, `true`, `false`, `false`",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What does the final line log, and what is the main trade-off of declaring `handleClick` this way?\n\n```javascript\nclass Button {\n  label = \"OK\";\n  handleClick = () => console.log(this.label);\n  render() { return this.label; }\n}\n\nconst a = new Button();\nconst b = new Button();\nconsole.log(a.handleClick === b.handleClick, a.render === b.render);\n```",
+      "explanation": "**Class methods** like `render()` are defined once on `Button.prototype` and shared by every instance, so `a.render === b.render` is `true`.\n\n**Class fields** (`handleClick = ...`) are initialized in the constructor for *each* instance. Every `new Button()` creates a new arrow function stored as an **own property**, so `a.handleClick === b.handleClick` is `false`.\n\nThe upside of the arrow-function field is that `this` is lexically bound to the instance, so it's safe to pass as a callback (`onClick={this.handleClick}`) without `.bind`.\n\nThe trade-offs:\n- One function allocation per instance (matters for many instances)\n- It's not on the prototype, so a subclass can't call `super.handleClick()`, and mocking via `Button.prototype.handleClick` in tests doesn't work\n- A subclass *method* named `handleClick` is shadowed by the parent's own-property field",
+      "answers": [
+        {
+          "answer": "`false true` — the arrow-function field is created per instance as an own property (auto-bound `this`, but extra allocations and no `super`/prototype access), while `render` is shared on the prototype.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`true true` — both are stored once on `Button.prototype`; the arrow only changes how `this` is bound.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`true false` — fields are hoisted to the prototype, while methods are copied to every instance.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`false false` — every class member is copied onto each instance at construction time.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What does this code log, and when?\n\n```javascript\nconst slow = new Promise((resolve) =>\n  setTimeout(() => { console.log(\"slow done\"); resolve(\"S\"); }, 1000)\n);\nconst fail = Promise.reject(new Error(\"boom\"));\n\nPromise.all([slow, fail])\n  .then((values) => console.log(\"values\", values))\n  .catch((err) => console.log(\"caught\", err.message));\n```",
+      "explanation": "`Promise.all` **rejects as soon as any input rejects** (\"fail-fast\"). Because `fail` is already rejected, `caught boom` is logged almost immediately (on the next microtask turns).\n\nHowever, **promises are not cancellable**: `Promise.all` rejecting doesn't stop the work behind `slow`. Its timer still fires after one second and logs `slow done`. Its result is simply ignored.\n\nRelated combinators:\n- `Promise.allSettled` — waits for all and reports each `{ status, value | reason }`; never rejects\n- `Promise.any` — resolves with the first *fulfillment*; rejects with an `AggregateError` only if all reject\n- `Promise.race` — settles like the first input to settle, either way\n\nTo actually cancel in-flight work (e.g. `fetch`), pass an `AbortSignal` and abort it on failure.",
+      "answers": [
+        {
+          "answer": "`caught boom` immediately, then `slow done` about one second later — `Promise.all` fails fast but does not cancel the other promises.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`slow done` after one second, then `caught boom` — `Promise.all` waits for every promise to settle before rejecting.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Only `caught boom` — when `Promise.all` rejects, the remaining pending promises are cancelled.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`slow done`, then `values [\"S\", undefined]` — rejected promises are converted to `undefined` in the result array.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What does this code log, and what is the most robust built-in way to get an independent copy of `original`?\n\n```javascript\nconst original = {\n  name: \"cfg\",\n  limits: { max: 10 },\n  created: new Date(0),\n};\n\nconst copy = { ...original };\ncopy.name = \"copy\";\ncopy.limits.max = 99;\n\nconsole.log(original.name, original.limits.max);\n```",
+      "explanation": "Object spread (like `Object.assign`) makes a **shallow copy**: it copies the top-level properties into a new object. Primitives (`name`) are copied by value, so changing `copy.name` doesn't affect `original`. But `limits` is an object, so only the **reference** is copied — `copy.limits` and `original.limits` are the same object. The output is `cfg 99`.\n\nFor a deep copy, use **`structuredClone`** (available in modern browsers and Node 17+). It handles nested objects, `Date`, `Map`, `Set`, typed arrays, and even circular references.\n\nIts limits: it throws on functions and DOM nodes, and it does not preserve class prototypes (class instances come back as plain objects).\n\n`JSON.parse(JSON.stringify(x))` is a poor substitute: it turns `Date` into a string, drops `undefined` and functions, loses `Map`/`Set`, and throws on cycles.",
+      "answers": [
+        {
+          "answer": "`cfg 99`. Spread is a shallow copy, so `limits` is shared. `structuredClone(original)` makes a deep copy that also preserves `Date`, `Map`, `Set`, and cycles.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`cfg 10`. Spread deep-copies plain objects; only class instances are shared by reference.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`copy 99`. Spread creates an alias of the original object rather than a new object.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`cfg 99`. The most robust fix is `JSON.parse(JSON.stringify(original))`, which preserves all types including `Date`.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What happens when this script runs?\n\n```javascript\nconsole.log(typeof foo);\nconsole.log(typeof bar);\n\nvar foo = 1;\nlet bar = 2;\n```",
+      "explanation": "Both `var` and `let` declarations are **hoisted**, but differently:\n\n- `var foo` is hoisted *and initialized to `undefined`* at the top of its scope. So `typeof foo` is `\"undefined\"`.\n- `let bar` (and `const`, and `class`) is hoisted but **not initialized**. From the start of the scope until the declaration is evaluated, `bar` is in the **Temporal Dead Zone (TDZ)**. *Any* access, even `typeof`, throws `ReferenceError: Cannot access 'bar' before initialization`.\n\nThis is a notable exception to the usual safety of `typeof`, which returns `\"undefined\"` for a completely *undeclared* identifier without throwing. The TDZ exists to catch use-before-initialization bugs that `var` silently allows.",
+      "answers": [
+        {
+          "answer": "It logs `\"undefined\"`, then throws `ReferenceError` — `bar` is in the Temporal Dead Zone, and even `typeof` can't read it before the `let` declaration runs.",
+          "isCorrect": true
+        },
+        {
+          "answer": "It logs `\"undefined\"` twice — `typeof` never throws, even for variables that aren't initialized yet.",
+          "isCorrect": false
+        },
+        {
+          "answer": "It logs `\"number\"` twice — all declarations, including their values, are hoisted to the top.",
+          "isCorrect": false
+        },
+        {
+          "answer": "It throws `ReferenceError` on the first line, because `foo` is used before it's declared.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "You want to attach computed metadata to DOM nodes (or other objects you don't own) without leaking memory after those objects are removed and no longer referenced elsewhere. Which approach is correct?",
+      "explanation": "A **`WeakMap`** holds its keys **weakly**: if the only remaining reference to a key object is the `WeakMap` entry itself, the key can be garbage-collected, and its entry (and value) disappears with it.\n\n```javascript\nconst meta = new WeakMap();\nfunction getMeta(node) {\n  if (!meta.has(node)) meta.set(node, computeExpensiveMeta(node));\n  return meta.get(node);\n}\n```\n\nWith a regular `Map`, the map itself keeps every key strongly reachable, so removed DOM nodes (and everything they reference) can never be collected unless you remember to `delete` them — a classic leak.\n\nBecause collection timing is non-deterministic, `WeakMap` is **not iterable** and has no `size` or `clear()`. Keys must be objects (or non-registered symbols), not primitives. Values are held strongly but only as long as their key is alive.",
+      "answers": [
+        {
+          "answer": "Use a `WeakMap` keyed by the object. Keys are held weakly, so when the object is otherwise unreachable, its entry can be garbage-collected. The trade-off is that a `WeakMap` can't be iterated or sized.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Use a `Map` keyed by the object. Modern engines automatically remove `Map` entries whose keys are only referenced by the map.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Use a `WeakSet` of `[node, metadata]` pairs, because `WeakSet` holds both keys and values weakly.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Use a `WeakMap` keyed by a string ID of the node. `WeakMap` accepts primitive keys and drops them when the string is no longer used.",
+          "isCorrect": false
+        }
+      ]
+    }
+  ]
+}

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## About
 
-This is a simple online quiz taking app. It features a main page which lists all the available quizes and the user's progress and score. Clicking on a quiz on the main page takes you to that quiz. Each quiz is 10 multiple-choice questions. Each question (and answers) is presented one at a time. The answers are displayed in a random order when they are displayed. When the user chooses an answer, it is scored as correct/incorrect immediately and the explanation is shown in a box underneath the question. The data for quizes is stored as a javascript array in the app. The data for the user (progress, score) is saved in local storage.
+This is a simple online quiz taking app. It features a main page which lists all the available quizes and the user's progress and score. Clicking on a quiz on the main page takes you to that quiz. Each quiz is 10 multiple-choice questions. Each question (and answers) is presented one at a time. The answers are displayed in a random order when they are displayed. When the user chooses an answer, it is scored as correct/incorrect immediately and the explanation is shown in a box underneath the question. The data for quizes is stored as JSON files in `public/data` and loaded asynchronously with `fetch`. The data for the user (progress, score) is saved in local storage.
 
 ## Design
 
@@ -33,12 +33,14 @@ When creating a new quiz question, make sure its not a duplicate by reviewing th
 
 ### Technical Quiz Specs
 
-The data for quizes is stored in a javascript array in ```src/quizes.ts```
+Quiz data lives in `public/data/` and is fetched at runtime (see `src/quizData.ts` for the types and fetch helpers):
 
-The javascript array data shape for a quizes looks like this:
-[ { id: "quiz-01", name: "Quiz 01", questions: [ {question: "", explanation: "", answers: [ { answer: "", isCorrect: true } ] } ] } ]
+- `public/data/index.json` — the list of quizzes shown on the main page, loaded when the site loads. Shape: `[ { "id": "typescript", "name": "TypeScript" } ]`
+- `public/data/<id>.json` — one file per quiz, named by the quiz `id`, loaded when the user opens that quiz. Shape: `{ "id": "typescript", "name": "TypeScript", "questions": [ { "question": "", "explanation": "", "answers": [ { "answer": "", "isCorrect": true } ] } ] }`
 
-Each quiz has a unique, stable `id` (a kebab-case slug) that is used as the local storage key for the user's progress. Quiz names can change freely, but never change or reuse an existing `id`, or saved progress will be lost or attached to the wrong quiz.
+When adding a quiz, create its `<id>.json` file AND add an entry to `index.json`. Keep the `name` in both files in sync. Strings are JSON, so newlines in markdown (e.g. code blocks) must be escaped as `\n`.
+
+Each quiz has a unique, stable `id` (a kebab-case slug) that is used as the JSON filename and the local storage key for the user's progress. Quiz names can change freely, but never change or reuse an existing `id`, or saved progress will be lost or attached to the wrong quiz.
 
 ## Commands
 
@@ -58,6 +60,12 @@ There are no tests configured yet.
 
 ## Architecture
 
-The app is a blank scaffold. Entry point is `src/main.tsx` → `src/App.tsx`. All application code lives under `src/`.
+Entry point is `src/main.tsx` → `src/App.tsx`. All application code lives under `src/`.
+
+- `src/App.tsx` — main page (fetches `index.json`) and `QuizPage`, which fetches the selected quiz's JSON and renders `QuizView`
+- `src/QuizView.tsx` — one-question-at-a-time quiz UI
+- `src/quizData.ts` — quiz types and `fetchQuizIndex` / `fetchQuiz`
+- `src/useFetch.ts` — small hook tracking loading/success/error state for async loads
+- `src/storage.ts` — local storage progress, keyed by quiz `id`. The main page reads the question total from saved progress (`totalQuestions`), falling back to `QUESTIONS_PER_QUIZ`
 
 TypeScript is strict: `noUnusedLocals`, `noUnusedParameters`, and `erasableSyntaxOnly` are enabled. `allowImportingTsExtensions` is on, so imports use `.tsx`/`.ts` extensions explicitly (e.g. `import App from './App.tsx'`).

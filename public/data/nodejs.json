@@ -1,0 +1,226 @@
+{
+  "id": "nodejs",
+  "name": "Node.js",
+  "questions": [
+    {
+      "question": "Consider the following Node.js script:\n\n```javascript\nsetTimeout(() => console.log('setTimeout'), 0);\nsetImmediate(() => console.log('setImmediate'));\nPromise.resolve().then(() => console.log('Promise'));\nprocess.nextTick(() => console.log('nextTick'));\n```\n\nIgnoring the non-deterministic ordering between `setTimeout` and `setImmediate`, which two callbacks are **always** guaranteed to run before `setImmediate`?",
+      "explanation": "Node.js processes two special queues before advancing to the next event loop phase:\n\n1. **Next tick queue** (`process.nextTick`): drained completely before anything else — even before Promise microtasks.\n2. **Microtask queue** (resolved Promises / `queueMicrotask`): drained after the next tick queue is empty.\n\nOnly after both queues are empty does Node.js move to the next event loop phase. `setImmediate` runs in the **check phase** — after I/O polling — making it the last of the group to execute.\n\nThe relative order of `setTimeout(fn, 0)` vs `setImmediate` is non-deterministic when both are queued from the main module, because which phase runs first depends on OS scheduling jitter. Inside an I/O callback, `setImmediate` is guaranteed to fire before `setTimeout(fn, 0)`.",
+      "answers": [
+        {
+          "answer": "`process.nextTick` and resolved Promise callbacks",
+          "isCorrect": true
+        },
+        {
+          "answer": "`setTimeout` and `process.nextTick`",
+          "isCorrect": false
+        },
+        {
+          "answer": "Resolved Promise callbacks and `setTimeout`",
+          "isCorrect": false
+        },
+        {
+          "answer": "`setTimeout` and `setImmediate`",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "Your Node.js API handles CPU-intensive image resizing on uploaded files. Under load, the event loop becomes blocked and all other requests stall. A teammate suggests wrapping the resize function in `async/await`. Why does this not solve the problem, and what is the correct approach?",
+      "explanation": "**`async/await` only helps with I/O-bound work.** When you `await` a Promise that wraps a non-blocking I/O operation (a network call, a file read via `fs.promises`), the underlying call is handed to the OS, Node.js is free to process other events, and the callback resumes when I/O completes. No CPU is consumed while waiting.\n\nCPU-bound work — tight loops, image processing, cryptography — runs continuously on the main thread and never yields, regardless of whether it's wrapped in a Promise or `await`-ed. Adding `async` to a synchronous function that burns CPU just wraps its return value in a Promise; it does not make the execution non-blocking.\n\n**The correct solutions:**\n\n1. **`worker_threads`** (preferred for CPU-bound tasks within the same process): spawn a `Worker` for each image operation. Each worker runs on a separate OS thread with its own V8 isolate, processing images in parallel without blocking the event loop. Data is exchanged via `postMessage` / `SharedArrayBuffer`.\n\n2. **Child processes** (`child_process.fork`): spawn a separate Node.js process. Higher overhead than threads but full isolation — useful for untrusted code or large memory footprints.\n\n3. **Offload to a queue + worker service** (architecturally cleanest at scale): publish resize jobs to a message queue (BullMQ, SQS) and process them in a separate dedicated service.",
+      "answers": [
+        {
+          "answer": "`async/await` only yields the event loop during I/O waits — CPU-bound work never yields regardless of how it's wrapped. The correct fix is to offload the image processing to a `worker_threads` Worker, which runs on a separate OS thread.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Wrapping the resize function in `async/await` schedules it as a microtask, which runs at lower priority than I/O callbacks and prevents event loop starvation.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Using `setImmediate(() => resizeImage(...))` defers the work to the next event loop iteration, allowing other callbacks to interleave and preventing blocking.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Node.js automatically moves CPU-intensive Promises to a libuv thread pool (the same pool used for file I/O), so `async/await` is sufficient.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A Node.js endpoint streams a 2 GB file to an HTTP client. Version A buffers the whole file; version B pipes it. Why does version B use dramatically less memory, and what does `pipe` do about a slow client?\n\n```javascript\n// Version A\napp.get(\"/download\", async (req, res) => {\n  const data = await fs.promises.readFile(\"/data/huge.bin\");\n  res.end(data);\n});\n\n// Version B\napp.get(\"/download\", (req, res) => {\n  fs.createReadStream(\"/data/huge.bin\").pipe(res);\n});\n```",
+      "explanation": "**Version A** calls `fs.promises.readFile`, which reads the *entire* 2 GB into a single `Buffer` in memory before sending anything. With even a handful of concurrent downloads the process balloons past its heap/RSS limits and can crash with an out-of-memory error. It also delays the first byte until the whole file is read.\n\n**Version B** uses a **readable stream** piped to the response. The file is read in small chunks (default 64 KB `highWaterMark`), each chunk is written to the socket, and then the next chunk is read. Peak memory is a few buffers, not the whole file — roughly constant regardless of file size. Data also starts flowing to the client immediately.\n\nCrucially, `pipe` also handles **backpressure** automatically. If the client (or network) is slow, `res.write()` returns `false` when the socket's internal buffer fills. `pipe` responds by calling `.pause()` on the read stream, stops pulling from disk, and resumes (`.resume()`) only when the `drain` event fires. This prevents a fast disk from overwhelming a slow consumer and keeps memory bounded. Manually re-implementing this correctly is error-prone, which is why `pipe` (or `stream.pipeline`, which also propagates errors and cleans up) is strongly preferred.",
+      "answers": [
+        {
+          "answer": "Streaming reads the file in small chunks so peak memory stays roughly constant instead of holding all 2 GB, and `pipe` applies backpressure — pausing the read stream when the client's socket buffer is full and resuming on `drain`.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`pipe` compresses the file on the fly, so less data is held in memory; slow clients are handled by dropping chunks that can't be sent in time.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Both versions use the same memory, but `pipe` runs on a libuv worker thread so it doesn't block the event loop; backpressure is irrelevant for HTTP.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Streaming loads the whole file once too, but caches it on disk; a slow client causes `pipe` to buffer everything in memory until the client catches up.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What happens when this script runs on Node.js 18 or later with default flags?\n\n```javascript\nasync function loadConfig() {\n  throw new Error(\"missing env var\");\n}\n\nloadConfig(); // no await, no .catch()\n\nsetInterval(() => console.log(\"still running\"), 1000);\n```",
+      "explanation": "Calling an `async` function that throws returns a **rejected promise**. Nobody awaits it or attaches a `.catch`, so once the microtask queue drains, Node emits an `unhandledRejection` event.\n\nSince **Node 15**, the default `--unhandled-rejections` mode is `throw`: if no `process.on('unhandledRejection')` handler is registered, the rejection is raised as an uncaught exception. The process prints the stack trace and **exits with code 1**, before the first interval tick, so `still running` is never printed.\n\n(Before Node 15 the default only printed a deprecation warning and kept running, which hid many bugs.)\n\nBest practices:\n- Always `await` or `.catch()` promises, and use the `@typescript-eslint/no-floating-promises` lint rule\n- Treat a global `unhandledRejection` handler as a last-resort logger, then exit; don't use it to keep a corrupted process alive",
+      "answers": [
+        {
+          "answer": "The process crashes with exit code 1 before \"still running\" is ever printed. Since Node 15, an unhandled promise rejection is treated like an uncaught exception by default.",
+          "isCorrect": true
+        },
+        {
+          "answer": "It prints a warning about the unhandled rejection, then logs \"still running\" every second forever.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Nothing is printed for the error. The rejection is silently swallowed because `loadConfig` wasn't awaited, and \"still running\" is logged every second.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The error is retried automatically by the event loop until `loadConfig` succeeds.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A project's `package.json` contains `\"type\": \"module\"`. This file throws at startup. Why, and what is the correct fix?\n\n```javascript\n// src/render.js\nimport { readFile } from \"node:fs/promises\";\nimport path from \"node:path\";\n\nconst template = await readFile(\n  path.join(__dirname, \"template.html\"),\n  \"utf8\"\n);\n```",
+      "explanation": "With `\"type\": \"module\"`, `.js` files are loaded as **ES modules**. The CommonJS module wrapper, which injects `require`, `module`, `exports`, `__filename`, and `__dirname`, isn't used for ESM, so the code throws **`ReferenceError: __dirname is not defined in ES module scope`**.\n\nESM exposes module location through `import.meta`:\n\n```javascript\n// Node 20.11+ / 21.2+\nconst dir = import.meta.dirname;\n\n// Older versions\nimport { fileURLToPath } from \"node:url\";\nconst dir = path.dirname(fileURLToPath(import.meta.url));\n```\n\nTop-level `await` is not the problem. It's fully supported in ES modules (and *not* supported in CommonJS).",
+      "answers": [
+        {
+          "answer": "`__dirname` doesn't exist in ES modules. Use `import.meta.dirname` (Node 20.11+), or `path.dirname(fileURLToPath(import.meta.url))` on older versions.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Top-level `await` is not allowed in Node.js modules. Wrap the code in an async IIFE.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`node:` prefixed imports only work in CommonJS. Change them to `\"fs/promises\"` and `\"path\"`.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`__dirname` must be imported explicitly: `import { __dirname } from \"node:path\"`.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "Your Node.js HTTP API runs as a single process on an 8-core VM. Under load, throughput plateaus while one CPU core sits at 100% and the other seven are idle. Profiling shows the time is spent in your own JavaScript (JSON serialization, validation, templating). What is the most appropriate way to use the remaining cores?",
+      "explanation": "Your JavaScript runs on **a single main thread** per Node process. A single process can therefore saturate only about one core with JS work, no matter how many cores the machine has.\n\nThe standard fix for request-handling throughput is to **run multiple processes**:\n- The built-in **`node:cluster`** module forks N workers that share the same listening port, with the primary distributing connections.\n- Or a process manager like PM2 in cluster mode.\n- Or, in containerized environments, more replicas (pods) behind a load balancer, each with roughly one CPU, which is usually preferred.\n\nWhy the other options don't work:\n- **`UV_THREADPOOL_SIZE`** sizes libuv's thread pool, used for `fs`, `dns.lookup`, some `crypto`, and `zlib`. It doesn't parallelize your JavaScript.\n- **`worker_threads`** suit offloading specific CPU-heavy tasks (as with image processing), not handling every HTTP request. The per-request message passing and serialization overhead would make things worse.\n- **`--max-old-space-size`** only raises the V8 heap limit.",
+      "answers": [
+        {
+          "answer": "Run multiple Node processes, either with `node:cluster` (workers share the port) or as multiple replicas behind a load balancer, since each process executes JavaScript on a single main thread.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Increase `UV_THREADPOOL_SIZE` to 8 so that libuv spreads JavaScript execution across all cores.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Spawn a new `worker_thread` for every incoming HTTP request so each request runs on its own core.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Raise `--max-old-space-size`, since a larger heap lets V8 schedule garbage collection and JIT compilation on the idle cores.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "What happens when this code runs?\n\n```javascript\nconst { EventEmitter } = require(\"node:events\");\n\nconst bus = new EventEmitter();\nbus.on(\"data\", (d) => console.log(\"got\", d));\n\nbus.emit(\"error\", new Error(\"socket reset\"));\nconsole.log(\"after emit\");\n```",
+      "explanation": "`'error'` is a **special event name** for `EventEmitter`. If `emit('error', err)` is called and **no listener is registered for `'error'`**, Node **throws** `err` synchronously from `emit`.\n\nHere that means `after emit` is never logged, and unless something catches it, the process crashes with an uncaught exception.\n\nThis behavior applies to every class built on `EventEmitter`: streams, sockets, HTTP requests, child processes, and DB clients. A missing `'error'` listener on a stream or socket is a very common cause of production crashes.\n\nAlways attach error handlers:\n\n```javascript\nstream.on(\"error\", (err) => logger.error(err));\n// or use stream.pipeline(), which wires up error handling and cleanup for you\n```\n\nYou can also use `events.errorMonitor` to observe errors without consuming them.",
+      "answers": [
+        {
+          "answer": "`emit(\"error\")` with no `'error'` listener throws the error. \"after emit\" is never logged, and the process crashes with an uncaught exception.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Nothing happens to the error because there is no `'error'` listener. \"after emit\" is logged.",
+          "isCorrect": false
+        },
+        {
+          "answer": "The `'data'` listener receives the `Error` object, since unhandled events fall back to the first registered listener, and then \"after emit\" is logged.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Node logs a warning to stderr and continues, then logs \"after emit\".",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "You want every log line written during an HTTP request, including those deep inside service and repository code, to include that request's ID. You don't want to thread a `requestId` parameter through every function. Concurrent requests must not see each other's IDs. What's the idiomatic Node.js solution?",
+      "explanation": "**`AsyncLocalStorage`** (from `node:async_hooks`, stable since Node 16) provides a store that follows the **asynchronous execution context**. It propagates through `await`, promises, timers, and callbacks, much like thread-local storage in multi-threaded languages.\n\n```javascript\nimport { AsyncLocalStorage } from \"node:async_hooks\";\nexport const requestContext = new AsyncLocalStorage();\n\napp.use((req, res, next) => {\n  requestContext.run({ requestId: crypto.randomUUID() }, next);\n});\n\n// Anywhere downstream:\nconst id = requestContext.getStore()?.requestId;\n```\n\nEach `run()` creates an isolated context, so concurrent requests interleaved on the event loop each see their own store.\n\nA module-level variable fails because the event loop interleaves requests: request B overwrites the value while request A is still awaiting I/O. `process.env` is process-global and string-only. Worker threads don't give per-request isolation for code that runs on the main thread.",
+      "answers": [
+        {
+          "answer": "Use `AsyncLocalStorage`: wrap each request in `als.run({ requestId }, next)` and read `als.getStore()` anywhere downstream. The context propagates across `await` and callbacks while staying isolated per request.",
+          "isCorrect": true
+        },
+        {
+          "answer": "Store the ID in a module-level `let currentRequestId` set at the start of each request. Node is single-threaded, so only one request runs at a time.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Set `process.env.REQUEST_ID` in middleware. Environment variables are scoped to the current async call chain.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Run each request in its own `worker_thread` and keep the ID in a thread-local global.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "During every Kubernetes rolling deploy, clients see a burst of connection resets and 502s. The service's shutdown code is shown below. What's wrong, and what should the handler do instead?\n\n```javascript\nconst server = app.listen(3000);\n\nprocess.on(\"SIGTERM\", () => {\n  console.log(\"shutting down\");\n  process.exit(0);\n});\n```",
+      "explanation": "When Kubernetes terminates a pod it sends **SIGTERM**, waits up to `terminationGracePeriodSeconds` (30s by default), and then sends **SIGKILL**. Calling `process.exit(0)` immediately kills the process, aborting every **in-flight request** and dropping open connections, which causes the resets and 502s.\n\nA graceful shutdown should:\n1. **Stop accepting new connections** with `server.close(callback)`, which waits for in-flight requests to finish. Idle keep-alive sockets can be closed with `server.closeIdleConnections()`.\n2. Optionally **fail the readiness probe first** and wait a few seconds, so endpoints and load balancers stop routing new traffic to the pod.\n3. **Close resources**, such as database pools, message consumers, and Redis clients.\n4. **Exit** once done, with a **timeout fallback** shorter than the grace period in case something hangs.\n\n```javascript\nprocess.on(\"SIGTERM\", () => {\n  const timer = setTimeout(() => process.exit(1), 25_000);\n  timer.unref();\n  server.close(async () => {\n    await db.end();\n    process.exit(0);\n  });\n});\n```\n\nAlso make sure Node actually receives the signal. Run `node` directly as PID 1 (exec-form `CMD`), not under `npm start`.",
+      "answers": [
+        {
+          "answer": "`process.exit(0)` kills in-flight requests instantly. The handler should call `server.close()` to stop accepting connections and let active requests finish, close DB pools and other resources, then exit, with a timeout fallback before Kubernetes sends SIGKILL.",
+          "isCorrect": true
+        },
+        {
+          "answer": "The handler should ignore SIGTERM entirely. Kubernetes waits for the process to exit on its own once traffic stops.",
+          "isCorrect": false
+        },
+        {
+          "answer": "Listening on SIGTERM is the bug. Node handles SIGTERM gracefully by default, draining connections automatically when no handler is registered.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`process.exit(0)` should be `process.exit(1)`. Kubernetes only reroutes traffic away from pods that exit with a failure code.",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "question": "A Node.js service's memory climbs steadily for hours until it's OOM-killed. Which part of this middleware is the most likely cause, and how would you confirm it?\n\n```javascript\nconst inflight = new Map();\n\napp.use((req, res, next) => {\n  const id = crypto.randomUUID();\n  inflight.set(id, { url: req.url, start: Date.now(), req });\n\n  res.on(\"finish\", () => {\n    metrics.observe(Date.now() - inflight.get(id).start);\n  });\n\n  next();\n});\n```",
+      "explanation": "The module-level `inflight` Map gets an entry for **every request** and **nothing ever deletes it**. Worse, each entry holds a reference to the full `req` object, which keeps its headers, body buffers, socket, and anything attached to it **reachable forever**. Memory grows linearly with traffic.\n\nFix: `inflight.delete(id)` in the `finish` (and `close`) handlers. Better still, avoid the global map entirely and store the start time on `res.locals` or in a closure variable.\n\nTo confirm a leak like this:\n- Take **heap snapshots** over time and compare them. Use Chrome DevTools via `node --inspect`, `v8.writeHeapSnapshot()`, or `--heapsnapshot-signal=SIGUSR2`.\n- In the comparison view, look for object counts that only grow (e.g. `IncomingMessage`), and follow the **retainers** path back to the `Map`.\n\nOther classic leak sources: unbounded caches without eviction, listeners added per request to long-lived emitters (watch for `MaxListenersExceededWarning`), and timers that are never cleared.",
+      "answers": [
+        {
+          "answer": "The `inflight` Map never removes entries, and each entry retains the entire `req` object, so memory grows with every request. Confirm by comparing heap snapshots over time and following the retainers to the Map.",
+          "isCorrect": true
+        },
+        {
+          "answer": "`crypto.randomUUID()` leaks memory because it allocates from a native entropy pool that V8 can't garbage-collect.",
+          "isCorrect": false
+        },
+        {
+          "answer": "`res.on(\"finish\")` registers a listener on a global emitter that's never removed, and that alone causes the growth. The Map is harmless.",
+          "isCorrect": false
+        },
+        {
+          "answer": "There is no leak. V8 lazily collects old-generation objects, so increase `--max-old-space-size` and memory will stabilize.",
+          "isCorrect": false
+        }
+      ]
+    }
+  ]
+}
