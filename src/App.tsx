@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import { fetchQuiz, fetchQuizIndex, iconUrl, QUESTIONS_PER_QUIZ } from './quizData.ts'
 import type { QuizSummary } from './quizData.ts'
 import { QuizView } from './QuizView.tsx'
+import { trackEvent } from './analytics.ts'
 import { loadQuizProgress } from './storage.ts'
 import { useFetch } from './useFetch.ts'
 import './App.css'
@@ -100,7 +101,19 @@ function MainPage({ onSelectQuiz }: { onSelectQuiz: (id: string) => void }) {
         )}
         {index.status === 'success' &&
           index.data.map((quiz) => (
-            <QuizCard key={quiz.id} quiz={quiz} onSelect={() => onSelectQuiz(quiz.id)} />
+            <QuizCard
+              key={quiz.id}
+              quiz={quiz}
+              onSelect={() => {
+                const progress = loadQuizProgress(quiz.id)
+                trackEvent('quiz_opened', {
+                  quiz_id: quiz.id,
+                  quiz_name: quiz.name,
+                  questions_answered: progress?.questionsAnswered ?? 0,
+                })
+                onSelectQuiz(quiz.id)
+              }}
+            />
           ))}
       </main>
     </div>

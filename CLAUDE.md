@@ -56,7 +56,8 @@ There are no tests configured yet.
 ## Stack
 
 - React 19 + TypeScript 6, bundled by Vite 8
-- No routing, state management, or UI library installed — all to be added
+- No routing, state management, or UI library installed
+- `posthog-js` for analytics
 
 ## Architecture
 
@@ -66,6 +67,7 @@ Entry point is `src/main.tsx` → `src/App.tsx`. All application code lives unde
 - `src/QuizView.tsx` — one-question-at-a-time quiz UI
 - `src/quizData.ts` — quiz types and `fetchQuizIndex` / `fetchQuiz`
 - `src/useFetch.ts` — small hook tracking loading/success/error state for async loads
+- `src/analytics.ts` — PostHog analytics. `posthog-js` is lazy-loaded on idle and only runs when `VITE_PUBLIC_POSTHOG_KEY` is set (in a gitignored `.env.local`; see `.env.example`)
 - `src/storage.ts` — local storage progress, keyed by quiz `id`. The main page reads the question total from saved progress (`totalQuestions`), falling back to `QUESTIONS_PER_QUIZ`
 
 TypeScript is strict: `noUnusedLocals`, `noUnusedParameters`, and `erasableSyntaxOnly` are enabled. `allowImportingTsExtensions` is on, so imports use `.tsx`/`.ts` extensions explicitly (e.g. `import App from './App.tsx'`).
