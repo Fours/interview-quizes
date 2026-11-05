@@ -70,7 +70,7 @@ export function QuizView({ quiz, onBack }: Props) {
     <div className="quiz-view">
       {/* ── Logo ── */}
       <div className="quiz-logo-bar">
-        <Logo compact />
+        <Logo heading={false} />
       </div>
 
       {/* ── Header ── */}

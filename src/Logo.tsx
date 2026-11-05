@@ -1,13 +1,13 @@
 /**
  * The "quiz()" wordmark with its eyebrow label.
- * `compact` is the smaller version used at the top of the quiz page; the main page uses the
- * full-size version as its <h1>.
+ * The main page renders it as its <h1>; the quiz page passes `heading={false}` since the
+ * logo isn't that page's title.
  */
-export function Logo({ compact = false }: { compact?: boolean }) {
-  const Title = compact ? 'p' : 'h1'
+export function Logo({ heading = true }: { heading?: boolean }) {
+  const Title = heading ? 'h1' : 'p'
 
   return (
-    <div className={compact ? 'logo logo--compact' : 'logo'}>
+    <div className="logo">
       <p className="logo-eyebrow">Software Engineer</p>
       <Title className="logo-title">
         quiz<span className="logo-parens">()</span>

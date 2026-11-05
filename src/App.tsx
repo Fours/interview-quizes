@@ -130,7 +130,7 @@ function QuizPage({ quizId, onBack }: { quizId: string; onBack: () => void }) {
   return (
     <div className="quiz-view">
       <div className="quiz-logo-bar">
-        <Logo compact />
+        <Logo heading={false} />
       </div>
       {quiz.status === 'loading' ? (
         <StatusMessage message="Loading quiz…" />
