@@ -49,11 +49,16 @@ body {
 }
 
 .header h1 {
+  font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 2.75rem;
   font-weight: 700;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.04em;
   line-height: 1.1;
   color: var(--text-primary);
+}
+
+.header h1 .header-parens {
+  color: var(--accent);
 }
 
 .header-subtitle {

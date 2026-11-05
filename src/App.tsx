@@ -87,8 +87,8 @@ function MainPage({ onSelectQuiz }: { onSelectQuiz: (id: string) => void }) {
   return (
     <div className="app">
       <header className="header">
-        <p className="header-eyebrow">Senior Software Engineer</p>
-        <h1>Interview Quizzes</h1>
+        <p className="header-eyebrow">Software Engineer</p>
+        <h1>quiz<span className="header-parens">()</span></h1>
         <p className="header-subtitle">
           Ten questions per quiz. Pick up where you left off - progress is saved automatically.
         </p>
