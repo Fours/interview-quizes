@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { fetchQuiz, fetchQuizIndex, QUESTIONS_PER_QUIZ } from './quizData.ts'
+import type { CSSProperties } from 'react'
+import { fetchQuiz, fetchQuizIndex, iconUrl, QUESTIONS_PER_QUIZ } from './quizData.ts'
 import type { QuizSummary } from './quizData.ts'
 import { QuizView } from './QuizView.tsx'
 import { loadQuizProgress } from './storage.ts'
@@ -47,8 +48,18 @@ function QuizCard({ quiz, onSelect }: { quiz: QuizSummary; onSelect: () => void 
   return (
     <button className="quiz-card" onClick={onSelect}>
       <div className="quiz-card-header">
-        <span className="quiz-name">{quiz.name}</span>
-        {completed && <span className="badge">Complete</span>}
+        <div className="quiz-card-title">
+          <span className="quiz-name">{quiz.name}</span>
+          {completed && <span className="badge">Complete</span>}
+        </div>
+        {quiz.icon && (
+          <span
+            className="quiz-icon"
+            aria-hidden="true"
+            // The SVG is applied as a mask so CSS controls its colour (brand logos and outline icons alike).
+            style={{ '--icon-url': `url("${iconUrl(quiz.icon)}")` } as CSSProperties}
+          />
+        )}
       </div>
       <div className="quiz-stats">
         <div className="stat">
@@ -78,7 +89,7 @@ function MainPage({ onSelectQuiz }: { onSelectQuiz: (id: string) => void }) {
         <p className="header-eyebrow">Senior Software Engineer</p>
         <h1>Interview Quizzes</h1>
         <p className="header-subtitle">
-          Ten questions per quiz. Pick up where you left off — progress is saved automatically.
+          Ten questions per quiz. Pick up where you left off - progress is saved automatically.
         </p>
       </header>
 

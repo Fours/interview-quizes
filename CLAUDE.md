@@ -35,7 +35,7 @@ When creating a new quiz question, make sure its not a duplicate by reviewing th
 
 Quiz data lives in `public/data/` and is fetched at runtime (see `src/quizData.ts` for the types and fetch helpers):
 
-- `public/data/index.json` — the list of quizzes shown on the main page, loaded when the site loads. Shape: `[ { "id": "typescript", "name": "TypeScript" } ]`
+- `public/data/index.json` — the list of quizzes shown on the main page, loaded when the site loads. Shape: `[ { "id": "typescript", "name": "TypeScript", "icon": "typescript" } ]`. `icon` is the basename of an SVG in `public/icons/`, shown light grey in the top-right of the quiz card. Use the technology's brand logo when there is one (from [Simple Icons](https://simpleicons.org)), otherwise a related general icon (from [Lucide](https://lucide.dev)); credit new icons in `public/icons/LICENSE.md`.
 - `public/data/<id>.json` — one file per quiz, named by the quiz `id`, loaded when the user opens that quiz. Shape: `{ "id": "typescript", "name": "TypeScript", "questions": [ { "question": "", "explanation": "", "answers": [ { "answer": "", "isCorrect": true } ] } ] }`
 
 When adding a quiz, create its `<id>.json` file AND add an entry to `index.json`. Keep the `name` in both files in sync. Strings are JSON, so newlines in markdown (e.g. code blocks) must be escaped as `\n`.

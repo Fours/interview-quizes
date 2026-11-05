@@ -1,38 +1,47 @@
 [
   {
     "id": "typescript",
-    "name": "TypeScript"
+    "name": "TypeScript",
+    "icon": "typescript"
   },
   {
     "id": "javascript",
-    "name": "JavaScript"
+    "name": "JavaScript",
+    "icon": "javascript"
   },
   {
     "id": "nodejs",
-    "name": "Node.js"
+    "name": "Node.js",
+    "icon": "nodejs"
   },
   {
     "id": "react",
-    "name": "React"
+    "name": "React",
+    "icon": "react"
   },
   {
     "id": "security",
-    "name": "Security"
+    "name": "Security",
+    "icon": "shield-check"
   },
   {
     "id": "databases",
-    "name": "Databases: SQL & NoSQL"
+    "name": "Databases: SQL & NoSQL",
+    "icon": "database"
   },
   {
     "id": "docker-kubernetes",
-    "name": "Docker & Kubernetes"
+    "name": "Docker & Kubernetes",
+    "icon": "docker"
   },
   {
     "id": "oop-functional",
-    "name": "OOP & Functional Programming"
+    "name": "OOP & Functional Programming",
+    "icon": "lambda"
   },
   {
     "id": "system-design",
-    "name": "System Design & Architecture"
+    "name": "System Design & Architecture",
+    "icon": "network"
   }
 ]
