@@ -65,13 +65,25 @@ body {
 /* ── Quiz list ───────────────────────────── */
 
 .quiz-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
 
+/* Loading/error messages span the full grid width */
+.quiz-list > .status-message {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 640px) {
+  .quiz-list {
+    grid-template-columns: 1fr;
+  }
+}
+
 .quiz-card {
-  display: block;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   background: var(--surface);
   border: 1.5px solid var(--border);
@@ -92,8 +104,9 @@ body {
 
 .quiz-card-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 22px;
 }
 
@@ -118,6 +131,7 @@ body {
 .quiz-stats {
   display: flex;
   gap: 36px;
+  margin-top: auto; /* pin stats + progress bar to the bottom so cards in a row line up */
   margin-bottom: 20px;
 }
 
