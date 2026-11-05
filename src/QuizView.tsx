@@ -3,6 +3,7 @@ import type { Quiz } from './quizData.ts'
 import { Markdown } from './Markdown.tsx'
 import { loadQuizProgress, saveQuizProgress } from './storage.ts'
 import type { QuizAnswer } from './storage.ts'
+import { Logo } from './Logo.tsx'
 
 function shuffleIndices(n: number): number[] {
   const arr = Array.from({ length: n }, (_, i) => i)
@@ -67,6 +68,11 @@ export function QuizView({ quiz, onBack }: Props) {
 
   return (
     <div className="quiz-view">
+      {/* ── Logo ── */}
+      <div className="quiz-logo-bar">
+        <Logo compact />
+      </div>
+
       {/* ── Header ── */}
       <div className="quiz-header">
         <button className="back-btn" onClick={onBack}>

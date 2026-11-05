@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import { fetchQuiz, fetchQuizIndex, iconUrl, QUESTIONS_PER_QUIZ } from './quizData.ts'
 import type { QuizSummary } from './quizData.ts'
+import { Logo } from './Logo.tsx'
 import { QuizView } from './QuizView.tsx'
 import { trackEvent } from './analytics.ts'
 import { loadQuizProgress } from './storage.ts'
@@ -87,8 +88,7 @@ function MainPage({ onSelectQuiz }: { onSelectQuiz: (id: string) => void }) {
   return (
     <div className="app">
       <header className="header">
-        <p className="header-eyebrow">Software Engineer</p>
-        <h1>quiz<span className="header-parens">()</span></h1>
+        <Logo />
         <p className="header-subtitle">
           Ten questions per quiz. Pick up where you left off - progress is saved automatically.
         </p>
@@ -129,6 +129,9 @@ function QuizPage({ quizId, onBack }: { quizId: string; onBack: () => void }) {
 
   return (
     <div className="quiz-view">
+      <div className="quiz-logo-bar">
+        <Logo compact />
+      </div>
       {quiz.status === 'loading' ? (
         <StatusMessage message="Loading quiz…" />
       ) : (
