@@ -49,6 +49,7 @@ npm run dev        # start Vite dev server (hot reload)
 npm run build      # type-check with tsc, then bundle with Vite
 npm run lint       # ESLint across all TS/TSX files
 npm run preview    # serve the production build locally
+npm run deploy     # build, upload to S3, invalidate CloudFront (see DEPLOY.md)
 ```
 
 There are no tests configured yet.
