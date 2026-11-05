@@ -29,7 +29,7 @@ export function QuizView({ quiz, onBack }: Props) {
   )
 
   const [sessionAnswers, setSessionAnswers] = useState<Record<number, QuizAnswer>>(() => {
-    const progress = loadQuizProgress(quiz.name)
+    const progress = loadQuizProgress(quiz.id)
     return (progress?.answers as Record<number, QuizAnswer>) ?? {}
   })
 
@@ -57,7 +57,7 @@ export function QuizView({ quiz, onBack }: Props) {
     }
     setSessionAnswers(newSessionAnswers)
 
-    saveQuizProgress(quiz.name, {
+    saveQuizProgress(quiz.id, {
       questionsAnswered: Object.keys(newSessionAnswers).length,
       correctAnswers: Object.values(newSessionAnswers).filter((a) => a.isCorrect).length,
       answers: newSessionAnswers,

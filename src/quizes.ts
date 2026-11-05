@@ -10,12 +10,15 @@ export type Question = {
 };
 
 export type Quiz = {
+  /** Stable unique identifier used as the local storage key. Never change it once published. */
+  id: string;
   name: string;
   questions: Question[];
 };
 
 export const quizes: Quiz[] = [
   {
+    id: "typescript",
     name: "TypeScript",
     questions: [
       {
@@ -394,6 +397,7 @@ This pattern gives you a single source of truth: a runtime array you can iterate
     ],
   },
   {
+    id: "javascript",
     name: "JavaScript",
     questions: [
       {
@@ -805,6 +809,7 @@ Because collection timing is non-deterministic, \`WeakMap\` is **not iterable** 
     ],
   },
   {
+    id: "nodejs",
     name: "Node.js",
     questions: [
       {
@@ -1215,6 +1220,7 @@ Other classic leak sources: unbounded caches without eviction, listeners added p
     ],
   },
   {
+    id: "react",
     name: "React",
     questions: [
       {
@@ -1690,6 +1696,7 @@ The React docs call this out under "You Might Not Need an Effect": effects are f
     ],
   },
   {
+    id: "security",
     name: "Security",
     questions: [
       {
@@ -2115,6 +2122,7 @@ Unguessable IDs (UUIDs) reduce enumeration but aren't an access control: IDs lea
     ],
   },
   {
+    id: "databases",
     name: "Databases: SQL & NoSQL",
     questions: [
       {
@@ -2511,6 +2519,7 @@ Verify the plan with \`.explain("executionStats")\`: you want \`IXSCAN\` and no 
     ],
   },
   {
+    id: "docker-kubernetes",
     name: "Docker & Kubernetes",
     questions: [
       {
@@ -2962,6 +2971,7 @@ This combination is a safe, zero-downtime strategy, at the cost of temporarily n
     ],
   },
   {
+    id: "oop-functional",
     name: "OOP & Functional Programming",
     questions: [
       {
@@ -3475,6 +3485,7 @@ Libraries like \`neverthrow\` and \`Effect\` offer production-ready versions. Ru
     ],
   },
   {
+    id: "system-design",
     name: "System Design & Architecture",
     questions: [
       {

@@ -17,7 +17,7 @@ function MainPage({ onSelectQuiz }: { onSelectQuiz: (index: number) => void }) {
 
       <main className="quiz-list">
         {quizes.map((quiz, index) => {
-          const progress = loadQuizProgress(quiz.name)
+          const progress = loadQuizProgress(quiz.id)
           const questionsAnswered = progress?.questionsAnswered ?? 0
           const correctAnswers = progress?.correctAnswers ?? 0
           const total = quiz.questions.length
@@ -25,7 +25,7 @@ function MainPage({ onSelectQuiz }: { onSelectQuiz: (index: number) => void }) {
           const completed = questionsAnswered >= total && total > 0
 
           return (
-            <button key={quiz.name} className="quiz-card" onClick={() => onSelectQuiz(index)}>
+            <button key={quiz.id} className="quiz-card" onClick={() => onSelectQuiz(index)}>
               <div className="quiz-card-header">
                 <span className="quiz-name">{quiz.name}</span>
                 {completed && <span className="badge">Complete</span>}

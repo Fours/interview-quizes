@@ -36,7 +36,9 @@ When creating a new quiz question, make sure its not a duplicate by reviewing th
 The data for quizes is stored in a javascript array in ```src/quizes.ts```
 
 The javascript array data shape for a quizes looks like this:
-[ { name: "Quiz 01", questions: [ {question: "", explanation: "", answers: [ { answer: "", isCorrect: true } ] } ] } ]
+[ { id: "quiz-01", name: "Quiz 01", questions: [ {question: "", explanation: "", answers: [ { answer: "", isCorrect: true } ] } ] } ]
+
+Each quiz has a unique, stable `id` (a kebab-case slug) that is used as the local storage key for the user's progress. Quiz names can change freely, but never change or reuse an existing `id`, or saved progress will be lost or attached to the wrong quiz.
 
 ## Commands
 

@@ -20,12 +20,12 @@ function loadAll(): Record<string, StoredQuizProgress> {
   }
 }
 
-export function loadQuizProgress(quizName: string): StoredQuizProgress | undefined {
-  return loadAll()[quizName]
+export function loadQuizProgress(quizId: string): StoredQuizProgress | undefined {
+  return loadAll()[quizId]
 }
 
-export function saveQuizProgress(quizName: string, progress: StoredQuizProgress): void {
+export function saveQuizProgress(quizId: string, progress: StoredQuizProgress): void {
   const all = loadAll()
-  all[quizName] = progress
+  all[quizId] = progress
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all))
 }
