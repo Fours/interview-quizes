@@ -230,6 +230,27 @@ body {
   border-bottom: 1.5px solid var(--border);
 }
 
+/* Mobile: Back | title | counter grid so a long title wraps centered in the middle column */
+@media (max-width: 640px) {
+  .quiz-header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    column-gap: 20px;
+  }
+
+  .quiz-header .quiz-title {
+    font-size: 1.25rem;
+    line-height: 1.25;
+    text-align: center;
+    text-wrap: balance;
+  }
+
+  .quiz-header .back-btn,
+  .quiz-header .question-counter {
+    white-space: nowrap;
+  }
+}
+
 .back-btn {
   background: none;
   border: none;
