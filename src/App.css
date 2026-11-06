@@ -591,6 +591,67 @@ body {
   box-shadow: 0 0 0 2px white, 0 0 0 3.5px #DC2626;
 }
 
+/* Mobile: dots become a full-width segmented progress bar above the nav buttons */
+@media (max-width: 640px) {
+  .quiz-nav {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+
+  .question-dots {
+    order: -1;
+    flex-basis: 100%;
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+
+  /* The button is a tall transparent tap target; ::before draws the bar */
+  .dot,
+  .dot--active,
+  .dot--active.dot--correct,
+  .dot--active.dot--incorrect {
+    flex: 1;
+    width: auto;
+    height: 24px;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+    display: flex;
+    align-items: center;
+  }
+
+  .dot:hover {
+    transform: none;
+  }
+
+  .dot::before {
+    content: '';
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    transition: height 0.15s, background 0.15s;
+  }
+
+  .dot--correct::before {
+    background: #16A34A;
+  }
+
+  .dot--incorrect::before {
+    background: #DC2626;
+  }
+
+  .dot--active::before {
+    height: 8px;
+    border-radius: 4px;
+  }
+
+  .dot--active:not(.dot--correct):not(.dot--incorrect)::before {
+    background: var(--accent);
+  }
+}
+
 /* ── Loading / error states ──────────────── */
 
 .status-message {
