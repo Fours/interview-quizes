@@ -4,6 +4,7 @@ import { Markdown } from './Markdown.tsx'
 import { loadQuizProgress, saveQuizProgress } from './storage.ts'
 import type { QuizAnswer } from './storage.ts'
 import { Logo } from './Logo.tsx'
+import { Triangle } from './Triangle.tsx'
 
 function shuffleIndices(n: number): number[] {
   const arr = Array.from({ length: n }, (_, i) => i)
@@ -76,7 +77,7 @@ export function QuizView({ quiz, onBack }: Props) {
       {/* ── Header ── */}
       <div className="quiz-header">
         <button className="back-btn" onClick={onBack}>
-          ← Back
+          <Triangle direction="left" /> Back
         </button>
         <span className="quiz-title">{quiz.name}</span>
         <span className="question-counter">
@@ -152,7 +153,7 @@ export function QuizView({ quiz, onBack }: Props) {
           onClick={() => setCurrentIndex((i) => i - 1)}
           disabled={currentIndex === 0}
         >
-          ← Previous
+          <Triangle direction="left" /> Previous
         </button>
 
         <div className="question-dots">
@@ -170,7 +171,7 @@ export function QuizView({ quiz, onBack }: Props) {
           onClick={() => setCurrentIndex((i) => i + 1)}
           disabled={currentIndex === quiz.questions.length - 1}
         >
-          Next →
+          Next <Triangle direction="right" />
         </button>
       </div>
     </div>

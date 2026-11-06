@@ -246,6 +246,19 @@ body {
   opacity: 0.75;
 }
 
+/* Triangle icons inside buttons (see Triangle.tsx) */
+.back-btn,
+.nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.triangle-icon {
+  flex-shrink: 0;
+}
+
 .quiz-title {
   font-size: 1.375rem;
   font-weight: 700;

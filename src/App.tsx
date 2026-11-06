@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import { fetchQuiz, fetchQuizIndex, iconUrl, QUESTIONS_PER_QUIZ } from './quizData.ts'
 import type { QuizSummary } from './quizData.ts'
 import { Logo } from './Logo.tsx'
+import { Triangle } from './Triangle.tsx'
 import { QuizView } from './QuizView.tsx'
 import { trackEvent } from './analytics.ts'
 import { loadQuizProgress } from './storage.ts'
@@ -25,7 +26,7 @@ function StatusMessage({
         <div className="status-actions">
           {onBack && (
             <button className="nav-btn" onClick={onBack}>
-              ← Back
+              <Triangle direction="left" /> Back
             </button>
           )}
           {onRetry && (
