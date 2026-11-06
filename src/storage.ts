@@ -31,3 +31,9 @@ export function saveQuizProgress(quizId: string, progress: StoredQuizProgress): 
   all[quizId] = progress
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all))
 }
+
+export function clearQuizProgress(quizId: string): void {
+  const all = loadAll()
+  delete all[quizId]
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(all))
+}

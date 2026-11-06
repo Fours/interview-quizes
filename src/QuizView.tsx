@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react'
 import type { Quiz } from './quizData.ts'
 import { Markdown } from './Markdown.tsx'
-import { loadQuizProgress, saveQuizProgress } from './storage.ts'
+import { clearQuizProgress, loadQuizProgress, saveQuizProgress } from './storage.ts'
 import type { QuizAnswer } from './storage.ts'
 import { Logo } from './Logo.tsx'
 import { Triangle } from './Triangle.tsx'
+import { ResetIcon } from './ResetIcon.tsx'
+import { ConfirmDialog } from './ConfirmDialog.tsx'
+import { trackEvent } from './analytics.ts'
 
 function shuffleIndices(n: number): number[] {
   const arr = Array.from({ length: n }, (_, i) => i)
@@ -34,6 +37,21 @@ export function QuizView({ quiz, onBack }: Props) {
     const progress = loadQuizProgress(quiz.id)
     return (progress?.answers as Record<number, QuizAnswer>) ?? {}
   })
+
+  const [confirmingClear, setConfirmingClear] = useState(false)
+  const hasProgress = Object.keys(sessionAnswers).length > 0
+
+  function handleClearProgress() {
+    clearQuizProgress(quiz.id)
+    trackEvent('quiz_progress_cleared', {
+      quiz_id: quiz.id,
+      questions_answered: Object.keys(sessionAnswers).length,
+    })
+    setSessionAnswers({})
+    setPendingSelections({})
+    setCurrentIndex(0)
+    setConfirmingClear(false)
+  }
 
   const question = quiz.questions[currentIndex]
   const shuffledOrder = shuffledOrders[currentIndex]
@@ -80,10 +98,30 @@ export function QuizView({ quiz, onBack }: Props) {
           <Triangle direction="left" /> Back
         </button>
         <span className="quiz-title">{quiz.name}</span>
-        <span className="question-counter">
-          {currentIndex + 1} / {quiz.questions.length}
-        </span>
+        <div className="quiz-header-actions">
+          <button
+            className="icon-btn"
+            onClick={() => setConfirmingClear(true)}
+            disabled={!hasProgress}
+            aria-label="Clear progress for this quiz"
+            title="Clear progress"
+          >
+            <ResetIcon />
+          </button>
+          <span className="question-counter">
+            {currentIndex + 1} / {quiz.questions.length}
+          </span>
+        </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmingClear}
+        title="Clear progress?"
+        message={`This will erase all of your answers and your score for ${quiz.name}. This can't be undone.`}
+        confirmLabel="Clear progress"
+        onConfirm={handleClearProgress}
+        onCancel={() => setConfirmingClear(false)}
+      />
 
       {/* ── Question ── */}
       <div className="question-card">

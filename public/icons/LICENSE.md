@@ -4,7 +4,8 @@ Brand logos (`typescript`, `javascript`, `nodejs`, `react`, `docker`) are from
 [Simple Icons](https://simpleicons.org) v16.36.0, released under CC0 1.0.
 The logos remain trademarks of their respective owners.
 
-General icons (`shield-check`, `database`, `network`, `lambda`) are from
+General icons (`shield-check`, `database`, `network`, `lambda`, and `rotate-ccw`,
+inlined in `src/ResetIcon.tsx`) are from
 [Lucide](https://lucide.dev) v1.69.0:
 
 ISC License
